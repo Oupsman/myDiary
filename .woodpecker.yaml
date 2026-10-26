@@ -1,0 +1,31 @@
+when:
+  - event: push
+    branch: main
+
+steps:
+  - name: test
+    image: golang:1.27
+    environment:
+      CGO_ENABLED: "0"
+    commands:
+      # internal/ui and the root package need GTK; the server does not.
+      # $$ keeps Woodpecker from substituting the variable itself.
+      - PKGS=$(go list ./... | grep -v -e /internal/ui -e 'mydiary$')
+      - go vet $$PKGS
+      - go test $$PKGS
+
+  - name: publish
+    image: woodpeckerci/plugin-docker-buildx:5
+    settings:
+      registry:
+        from_secret: registry
+      repo:
+        from_secret: registry_repo
+      tags:
+        - latest
+        - ${CI_COMMIT_SHA}
+      username:
+        from_secret: registry_username
+      password:
+        from_secret: registry_password
+

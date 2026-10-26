@@ -92,3 +92,42 @@ file in the app's sync settings.
 When a diary is opened, after every save, every two minutes while the diary
 has no unsaved changes, and on F5. Unsaved edits are never uploaded. When
 offline, changes are uploaded at the next successful sync.
+
+## Docker image
+
+The `Dockerfile` builds the sync server only (static binary on distroless,
+non-root, data in `/data`). `.woodpecker.yaml` runs the tests on every push to
+`main`, then pushes the image to your registry tagged with the commit and
+`latest`.
+
+Woodpecker secrets:
+
+| Secret              | Value                                                       |
+|---------------------|-------------------------------------------------------------|
+| `registry`          | registry host, e.g. `registry.example.lan`                  |
+| `registry_repo`     | full image name, e.g. `registry.example.lan/mydiary-server` |
+| `registry_username` | account allowed to push                                     |
+| `registry_password` | its password or token                                       |
+
+To run it, create the data directory once (the container runs as uid 65532),
+then start the container, publishing the port on an address the reverse proxy
+can reach. That link is plain HTTP and carries the device tokens: keep it on
+WireGuard. Docker bypasses host firewall rules for published ports.
+
+```sh
+sudo install -d -m 0700 -o 65532 -g 65532 /srv/mydiary
+docker run -d --name mydiary-server --restart unless-stopped \
+    -p 10.0.0.2:8484:8484 -v /srv/mydiary:/data \
+    --read-only --cap-drop ALL --security-opt no-new-privileges:true \
+    registry.example.lan/mydiary-server:latest
+```
+
+To upgrade, `docker pull` the new tag, `docker rm -f mydiary-server` and run
+the same command again; the data stays in `/srv/mydiary`.
+
+Tokens:
+
+```sh
+docker exec mydiary-server mydiary-server -data /data token add laptop
+docker exec mydiary-server mydiary-server -data /data token list
+```
