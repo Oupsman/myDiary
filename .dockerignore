@@ -4,3 +4,5 @@
 *.diary
 /mydiary
 /mydiary-server
+web/mydiary.wasm*
+web/wasm_exec.js

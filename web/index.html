@@ -1,0 +1,74 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="myDiary">
+<meta name="color-scheme" content="light dark">
+<title>myDiary</title>
+<link rel="stylesheet" href="style.css">
+<script src="wasm_exec.js" defer></script>
+<script src="app.js" defer></script>
+</head>
+<body>
+
+<main id="unlock" class="screen unlock">
+  <h1>myDiary</h1>
+  <p id="loading" class="dim">Loading…</p>
+  <form id="unlock-form" hidden>
+    <label id="token-field">Device token
+      <input id="token" type="password" autocomplete="off" autocapitalize="off" spellcheck="false">
+      <small class="dim">Create one on the server with <code>token add NAME</code>.</small>
+    </label>
+    <label id="diary-field" hidden>Diary
+      <select id="diary"></select>
+    </label>
+    <label id="pass-field" hidden>Passphrase
+      <input id="pass" type="password" autocomplete="current-password">
+    </label>
+    <p id="unlock-error" class="error" role="alert"></p>
+    <button id="unlock-btn" type="submit" class="primary">Continue</button>
+    <button id="forget-btn" type="button" class="link" hidden>Use another device token</button>
+  </form>
+</main>
+
+<div id="app" class="screen app" hidden>
+  <section id="list-pane" class="pane list-pane">
+    <header class="bar">
+      <h1 id="diary-title" class="bar-title">myDiary</h1>
+      <span id="sync-status" class="sync-status" role="status"></span>
+      <button id="lock-btn" type="button" title="Lock">Lock</button>
+    </header>
+    <div class="search"><input id="search" type="search" placeholder="Search entries"></div>
+    <ul id="entries" class="entries"></ul>
+    <p id="no-entries" class="dim empty" hidden>No entries yet.</p>
+    <button id="new-btn" type="button" class="fab" title="New entry" aria-label="New entry">+</button>
+  </section>
+
+  <section id="entry-pane" class="pane entry-pane">
+    <header class="bar">
+      <button id="back-btn" type="button" class="back">‹ Entries</button>
+      <span class="spacer"></span>
+      <button id="delete-btn" type="button" class="danger">Delete</button>
+    </header>
+    <div id="entry-empty" class="dim empty">Select an entry, or tap + to write one.</div>
+    <article id="entry" hidden>
+      <input id="entry-title" class="entry-title" placeholder="Title" autocomplete="off">
+      <div class="meta">
+        <span id="entry-date" class="dim"></span>
+        <select id="entry-mood" aria-label="Mood"></select>
+      </div>
+      <div class="toolbar" role="toolbar">
+        <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
+        <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
+        <button type="button" data-cmd="underline" title="Underline"><u>U</u></button>
+      </div>
+      <div id="editor" class="editor" contenteditable="true" spellcheck="true"></div>
+    </article>
+  </section>
+</div>
+
+</body>
+</html>

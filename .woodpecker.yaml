@@ -13,6 +13,7 @@ steps:
       - PKGS=$(go list ./... | grep -v -e /internal/ui -e 'mydiary$')
       - go vet $$PKGS
       - go test $$PKGS
+      - GOOS=js GOARCH=wasm go vet ./cmd/mydiary-wasm
 
   - name: publish
     image: woodpeckerci/plugin-docker-buildx:5

@@ -8,6 +8,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"io/fs"
 	"log"
 	"net/http"
 	"strconv"
@@ -26,9 +27,22 @@ type Server struct {
 	Store   *Store
 	Tokens  *Tokens
 	MaxSize int64 // maximum upload size in bytes
+	// Web optionally holds the web frontend, served outside /v1/.
+	Web fs.FS
 }
 
 func (s *Server) Handler() http.Handler {
+	api := s.auth(s.apiMux())
+	if s.Web == nil {
+		return api
+	}
+	mux := http.NewServeMux()
+	mux.Handle("/v1/", api)
+	mux.Handle("/", webHandler(s.Web))
+	return mux
+}
+
+func (s *Server) apiMux() *http.ServeMux {
 	mux := http.NewServeMux()
 	mux.HandleFunc("GET /v1/ping", func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNoContent)
@@ -37,7 +51,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /v1/diaries/{id}", s.get)
 	mux.HandleFunc("PUT /v1/diaries/{id}", s.put)
 	mux.HandleFunc("DELETE /v1/diaries/{id}", s.del)
-	return s.auth(mux)
+	return mux
 }
 
 type statusWriter struct {

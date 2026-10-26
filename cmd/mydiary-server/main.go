@@ -4,7 +4,7 @@
 //
 // Usage:
 //
-//	mydiary-server [-data DIR] serve [-listen ADDR] [-max-size MiB]
+//	mydiary-server [-data DIR] serve [-listen ADDR] [-max-size MiB] [-web DIR]
 //	mydiary-server [-data DIR] token add NAME
 //	mydiary-server [-data DIR] token list
 //	mydiary-server [-data DIR] token revoke NAME
@@ -28,7 +28,7 @@ import (
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `Usage:
-  mydiary-server [-data DIR] serve [-listen ADDR] [-max-size MiB]
+  mydiary-server [-data DIR] serve [-listen ADDR] [-max-size MiB] [-web DIR]
   mydiary-server [-data DIR] token add NAME     create a device token (printed once)
   mydiary-server [-data DIR] token list
   mydiary-server [-data DIR] token revoke NAME
@@ -84,6 +84,7 @@ func serve(data string, tokens *syncserver.Tokens, args []string) {
 	fs := flag.NewFlagSet("serve", flag.ExitOnError)
 	listen := fs.String("listen", "127.0.0.1:8484", "address to listen on (keep it private: the reverse proxy does TLS)")
 	maxSize := fs.Int64("max-size", 512, "maximum diary size in MiB")
+	web := fs.String("web", "", "directory of the web frontend to serve (optional)")
 	fs.Parse(args)
 
 	store, err := syncserver.NewStore(filepath.Join(data, "diaries"))
@@ -93,9 +94,17 @@ func serve(data string, tokens *syncserver.Tokens, args []string) {
 	if ds, _ := tokens.List(); len(ds) == 0 {
 		log.Printf("warning: no device tokens yet; create one with: mydiary-server -data %s token add NAME", data)
 	}
+	handler := &syncserver.Server{Store: store, Tokens: tokens, MaxSize: *maxSize << 20}
+	if *web != "" {
+		if _, err := os.Stat(filepath.Join(*web, "index.html")); err != nil {
+			log.Fatalf("web frontend: %v", err)
+		}
+		handler.Web = os.DirFS(*web)
+		log.Printf("serving the web frontend from %s", *web)
+	}
 	srv := &http.Server{
 		Addr:              *listen,
-		Handler:           (&syncserver.Server{Store: store, Tokens: tokens, MaxSize: *maxSize << 20}).Handler(),
+		Handler:           handler.Handler(),
 		ReadHeaderTimeout: 10 * time.Second,
 		IdleTimeout:       2 * time.Minute,
 	}

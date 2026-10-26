@@ -1,2 +1,4 @@
 /mydiary
 *.diary
+/web/mydiary.wasm*
+/web/wasm_exec.js

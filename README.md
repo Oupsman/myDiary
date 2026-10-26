@@ -102,6 +102,36 @@ When a diary is opened, after every save, every two minutes while the diary
 has no unsaved changes, and on F5. Unsaved edits are never uploaded. When
 offline, changes are uploaded at the next successful sync.
 
+## Web frontend (phone)
+
+`mydiary-server serve -web DIR` also serves a web version of the app, for
+reading and writing entries from a phone's browser: entry list, search,
+moods, and text with bold, italic and underline. Fonts, sizes and pictures
+written on the desktop are shown and kept, but cannot be added from the web.
+
+The diary is decrypted in the browser by the same Go code as the desktop app,
+compiled to WebAssembly (`cmd/mydiary-wasm`): the server still only stores
+encrypted files. Build it with `./web/build.sh`, then serve the `web`
+directory. The Docker image includes it.
+
+On first use, enter a device token (`token add phone`), then the passphrase.
+The token is remembered by the browser, the passphrase never is. Edits are
+synced two seconds after you stop typing; the status at the top says when
+everything is on the server. Changes not yet synced live only in the open
+page: lock (or wait for "Synced") before closing it.
+
+Caveats:
+
+- The server sends the code that receives your passphrase. Whoever controls
+  the server or the proxy can change that code to steal the passphrase the
+  next time you unlock. Keep it on WireGuard only.
+- The whole diary is downloaded at unlock and uploaded at every sync, so
+  diaries with many pictures are slow on a phone.
+- Use it over HTTPS only: over plain HTTP, anyone on the path can read the
+  device token and replace the code. If the proxy uses a private CA, install
+  and trust it on the phone (on iOS: Settings → General → About → Certificate
+  Trust Settings).
+
 ## Docker image
 
 The `Dockerfile` builds the sync server only (static binary on distroless,
