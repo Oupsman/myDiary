@@ -7,9 +7,9 @@ import (
 	"strings"
 	"unicode/utf8"
 
-	"github.com/diamondburned/gotk4/pkg/glib/v2"
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
+	"github.com/diamondburned/gotk4/pkg/glib/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
 
@@ -223,6 +223,12 @@ func (ed *Editor) SetDiary(d *diary.Diary) {
 	ed.diary = d
 	ed.textures = map[string]*gdk.Texture{}
 	ed.imageIDs = map[uintptr]string{}
+}
+
+// ReplaceDiary points the editor at a new copy of the same diary (after a
+// sync merge), keeping the decoded pictures shown in the buffer.
+func (ed *Editor) ReplaceDiary(d *diary.Diary) {
+	ed.diary = d
 }
 
 // ---- tags ------------------------------------------------------------------

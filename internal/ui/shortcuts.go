@@ -51,6 +51,11 @@ var shortcuts = []shortcutGroup{
 		{"", []string{"<Control>z"}, "Undo"},
 		{"", []string{"<Control><Shift>z"}, "Redo"},
 	}},
+	{"Sync", []shortcut{
+		{"sync-now", []string{"F5"}, "Save and sync now"},
+		{"sync-settings", []string{"<Control>comma"}, "Sync settings"},
+		{"download-diary", []string{"<Control><Shift>o"}, "Get a diary from the sync server"},
+	}},
 	{"General", []shortcut{
 		{"shortcuts", []string{"<Control>question", "F1"}, "Show keyboard shortcuts"},
 		{"fullscreen", []string{"F11"}, "Toggle full screen"},

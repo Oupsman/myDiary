@@ -9,13 +9,15 @@ import (
 	"strings"
 	"time"
 
-	"github.com/diamondburned/gotk4/pkg/glib/v2"
+	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
+	"github.com/diamondburned/gotk4/pkg/glib/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
 
 	"github.com/oupsman/mydiary/internal/diary"
+	"github.com/oupsman/mydiary/internal/syncclient"
 	"github.com/oupsman/mydiary/internal/vault"
 )
 
@@ -75,6 +77,14 @@ type App struct {
 	loadingEntry   bool
 	suppressSelect bool
 	forceClose     bool
+
+	// Sync.
+	syncCfg    syncclient.Config
+	syncBtn    *gtk.Button
+	syncing    bool
+	syncAgain  bool // a sync was requested while one was running
+	syncPaused bool // waiting for the user (e.g. new passphrase needed)
+	saveSeq    int  // incremented on every save made by the user
 }
 
 func newApp(app *gtk.Application) *App {
@@ -94,6 +104,13 @@ func newApp(app *gtk.Application) *App {
 
 	a.setupActions()
 	registerAccels(app)
+	a.syncCfg = loadSyncConfig()
+	coreglib.TimeoutSecondsAdd(syncInterval, func() bool {
+		if a.diary != nil && !a.dirty && !a.syncPaused {
+			a.startSync()
+		}
+		return true
+	})
 
 	a.win.ConnectCloseRequest(func() bool {
 		if a.forceClose || a.diary == nil || !a.dirty {
@@ -173,10 +190,15 @@ func (a *App) buildHeader() {
 	sec1 := gio.NewMenu()
 	sec1.Append("_New diary…", "win.new-diary")
 	sec1.Append("_Open diary…", "win.open-diary")
+	sec1.Append("_Get diary from server…", "win.download-diary")
 	sec1.Append("_Save", "win.save")
 	sec1.Append("Change _passphrase…", "win.change-passphrase")
 	sec1.Append("_Close diary", "win.close-diary")
 	menu.AppendSection("", sec1)
+	secSync := gio.NewMenu()
+	secSync.Append("S_ync now", "win.sync-now")
+	secSync.Append("Sync _settings…", "win.sync-settings")
+	menu.AppendSection("", secSync)
 	sec2 := gio.NewMenu()
 	sec2.Append("_Keyboard shortcuts", "win.shortcuts")
 	sec2.Append("_Quit", "win.quit")
@@ -188,6 +210,12 @@ func (a *App) buildHeader() {
 	mb.SetMenuModel(menu)
 	mb.SetPrimary(true)
 	hb.PackEnd(mb)
+
+	a.syncBtn = gtk.NewButtonFromIconName("emblem-synchronizing-symbolic")
+	a.syncBtn.SetActionName("win.sync-now")
+	a.syncBtn.AddCSSClass("flat")
+	a.syncBtn.SetVisible(false)
+	hb.PackEnd(a.syncBtn)
 
 	save := gtk.NewButtonFromIconName("document-save-symbolic")
 	save.SetTooltipText("Save (Ctrl+S)")
@@ -234,6 +262,11 @@ func (a *App) buildWelcome() gtk.Widgetter {
 	create.AddCSSClass("pill")
 	create.SetActionName("win.new-diary")
 	box.Append(create)
+
+	download := gtk.NewButtonWithMnemonic("_Get a diary from the sync server…  (Ctrl+Shift+O)")
+	download.AddCSSClass("pill")
+	download.SetActionName("win.download-diary")
+	box.Append(download)
 
 	help := gtk.NewLabel("Press F1 to see all keyboard shortcuts.")
 	help.AddCSSClass("dim-label")
@@ -396,6 +429,16 @@ func (a *App) setupActions() {
 	add("insert-image", a.editor.InsertImageFromFile)
 	add("paste-image", a.editor.PasteImage)
 
+	add("sync-now", func() {
+		a.syncPaused = false
+		if a.dirty && !a.save() {
+			return
+		}
+		a.startSync()
+	})
+	add("sync-settings", a.syncSettings)
+	add("download-diary", func() { a.closeDiary(a.downloadDiary) })
+
 	add("shortcuts", func() { showShortcuts(&a.win.Window) })
 	add("fullscreen", func() {
 		if a.win.IsFullscreen() {
@@ -408,7 +451,7 @@ func (a *App) setupActions() {
 
 var (
 	diaryActions = []string{"save", "change-passphrase", "close-diary", "new-entry",
-		"search", "focus-list", "prev-entry", "next-entry"}
+		"search", "focus-list", "prev-entry", "next-entry", "sync-now"}
 	entryActions = []string{"delete-entry", "focus-title", "focus-editor", "bold", "italic",
 		"underline", "font", "grow-font", "shrink-font", "clear-format", "insert-image", "paste-image"}
 )
@@ -500,7 +543,7 @@ func (a *App) setDiary(path string, d *diary.Diary, k *vault.Key) {
 	a.dirty = false
 	a.current = nil
 	a.editor.SetDiary(d)
-	saveState(state{LastPath: path})
+	updateState(func(s *state) { s.LastPath = path })
 
 	a.search.SetText("")
 	a.rebuildList()
@@ -513,6 +556,14 @@ func (a *App) setDiary(path string, d *diary.Diary, k *vault.Key) {
 	}
 	a.updateTitle()
 	a.updateActions()
+
+	a.syncPaused = false
+	if d.IDAssigned() {
+		// Diary from an older version: persist its new sync ID right away.
+		a.save()
+	} else {
+		a.startSync()
+	}
 }
 
 // closeDiary closes the open diary (asking about unsaved changes) and then
@@ -566,9 +617,28 @@ func (a *App) lock() {
 	a.list.RemoveAll()
 	a.suppressSelect = false
 	a.rows = map[string]*entryRow{}
+	a.syncAgain = false
+	a.updateSyncStatus(syncIdle, "")
 }
 
+// save saves the diary on disk and then uploads it to the sync server.
 func (a *App) save() bool {
+	if !a.saveLocal() {
+		return false
+	}
+	a.saveSeq++
+	id := a.diary.ID
+	updateState(func(s *state) {
+		st := s.Sync[id]
+		st.Pending = true
+		s.Sync[id] = st
+	})
+	a.startSync()
+	return true
+}
+
+// saveLocal writes the diary file only.
+func (a *App) saveLocal() bool {
 	if a.diary == nil {
 		return false
 	}
@@ -843,6 +913,13 @@ func (a *App) moveSelection(delta int) {
 
 type state struct {
 	LastPath string `json:"last_path"`
+	// Sync is the per-diary sync state, by diary ID.
+	Sync map[string]diarySyncState `json:"sync,omitempty"`
+}
+
+type diarySyncState struct {
+	Version int64 `json:"version"` // server version the local file matches
+	Pending bool  `json:"pending"` // local changes not uploaded yet
 }
 
 func statePath() string {
@@ -860,7 +937,16 @@ func loadState() state {
 			json.Unmarshal(b, &s)
 		}
 	}
+	if s.Sync == nil {
+		s.Sync = map[string]diarySyncState{}
+	}
 	return s
+}
+
+func updateState(f func(*state)) {
+	s := loadState()
+	f(&s)
+	saveState(s)
 }
 
 func saveState(s state) {

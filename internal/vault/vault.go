@@ -47,6 +47,7 @@ var (
 	ErrNotVault        = errors.New("not a diary file")
 	ErrUnsupported     = errors.New("unsupported diary file version")
 	ErrWrongPassphrase = errors.New("wrong passphrase or corrupted file")
+	ErrKeyMismatch     = errors.New("file is encrypted with another passphrase")
 )
 
 // Params are the Argon2id cost parameters.
@@ -83,6 +84,36 @@ func (k *Key) derive(passphrase []byte) {
 	dk := argon2.IDKey(passphrase, k.salt[:], k.params.Time, k.params.Memory, k.params.Threads, keySize)
 	copy(k.key[:], dk)
 	wipe(dk)
+}
+
+// Clone returns an independent copy of the key, so it can be used from
+// another goroutine while the original may be wiped.
+func (k *Key) Clone() *Key {
+	c := *k
+	return &c
+}
+
+// Open decrypts a vault sealed with this very key (same salt and
+// parameters), without running the key derivation again. It returns
+// ErrKeyMismatch when the vault was sealed with another key, typically after
+// the passphrase was changed elsewhere.
+func (k *Key) Open(data []byte) ([]byte, error) {
+	if len(data) < headerSize+chacha20poly1305.Overhead || !bytes.Equal(data[:8], magic[:]) {
+		return nil, ErrNotVault
+	}
+	nonce := data[headerSize-nonceSize : headerSize]
+	if !bytes.Equal(data[:headerSize], k.header(nonce)) {
+		return nil, ErrKeyMismatch
+	}
+	aead, err := chacha20poly1305.NewX(k.key[:])
+	if err != nil {
+		return nil, err
+	}
+	pt, err := aead.Open(nil, nonce, data[headerSize:], data[:headerSize])
+	if err != nil {
+		return nil, ErrWrongPassphrase
+	}
+	return pt, nil
 }
 
 // Wipe zeroes the key material.

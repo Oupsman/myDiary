@@ -40,6 +40,23 @@ func TestRoundTrip(t *testing.T) {
 	}
 }
 
+func TestKeyOpen(t *testing.T) {
+	k, _ := NewKey([]byte("pw"), testParams)
+	sealed, _ := k.Clone().Seal([]byte("hi"))
+	if pt, err := k.Open(sealed); err != nil || string(pt) != "hi" {
+		t.Fatalf("open with same key: %q %v", pt, err)
+	}
+	other, _ := NewKey([]byte("pw"), testParams) // new salt
+	if _, err := other.Open(sealed); !errors.Is(err, ErrKeyMismatch) {
+		t.Fatalf("other salt: %v", err)
+	}
+	c := k.Clone()
+	k.Wipe()
+	if _, err := c.Open(sealed); err != nil {
+		t.Fatalf("clone affected by wipe: %v", err)
+	}
+}
+
 func TestWrongPassphraseAndTamper(t *testing.T) {
 	k, _ := NewKey([]byte("pw"), testParams)
 	sealed, _ := k.Seal([]byte("secret"))

@@ -1,0 +1,32 @@
+[Unit]
+Description=myDiary sync server
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+ExecStart=/usr/local/bin/mydiary-server -data /var/lib/mydiary serve -listen 127.0.0.1:8484
+User=mydiary
+Group=mydiary
+StateDirectory=mydiary
+StateDirectoryMode=0700
+UMask=0077
+Restart=on-failure
+
+# Hardening
+NoNewPrivileges=yes
+ProtectSystem=strict
+ProtectHome=yes
+PrivateTmp=yes
+PrivateDevices=yes
+ProtectKernelTunables=yes
+ProtectKernelModules=yes
+ProtectControlGroups=yes
+RestrictAddressFamilies=AF_INET AF_INET6
+RestrictNamespaces=yes
+LockPersonality=yes
+MemoryDenyWriteExecute=yes
+SystemCallArchitectures=native
+SystemCallFilter=@system-service
+
+[Install]
+WantedBy=multi-user.target

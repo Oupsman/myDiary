@@ -6,8 +6,8 @@ import (
 	"strings"
 
 	"github.com/diamondburned/gotk4/pkg/core/glib"
-	glibv2 "github.com/diamondburned/gotk4/pkg/glib/v2"
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
+	glibv2 "github.com/diamondburned/gotk4/pkg/glib/v2"
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 
 	"github.com/oupsman/mydiary/internal/diary"
@@ -168,7 +168,11 @@ type unlockFunc func(password []byte) string
 // askPassword asks for the passphrase of an existing diary. work runs in a
 // goroutine; done is called on the main thread after a successful unlock.
 func askPassword(parent *gtk.Window, path string, work unlockFunc, done func()) {
-	d := newDialog(parent, "Unlock diary", filepath.Base(path))
+	askPasswordWith(parent, "Unlock diary", filepath.Base(path), work, done)
+}
+
+func askPasswordWith(parent *gtk.Window, heading, body string, work unlockFunc, done func()) {
+	d := newDialog(parent, heading, body)
 	pw := passwordField()
 	d.field("_Passphrase", pw)
 
@@ -336,11 +340,18 @@ func chooseDiaryToOpen(parent *gtk.Window, f func(path string)) {
 }
 
 func chooseDiaryToCreate(parent *gtk.Window, f func(path string)) {
+	chooseDiaryToCreateNamed(parent, "My diary", f)
+}
+
+func chooseDiaryToCreateNamed(parent *gtk.Window, name string, f func(path string)) {
+	if name == "" {
+		name = "My diary"
+	}
 	dlg := gtk.NewFileDialog()
-	dlg.SetTitle("Create diary")
+	dlg.SetTitle("Save diary as")
 	dlg.SetModal(true)
-	dlg.SetAcceptLabel("_Create")
-	dlg.SetInitialName("My diary" + diary.FileExtension)
+	dlg.SetAcceptLabel("_Save")
+	dlg.SetInitialName(name + diary.FileExtension)
 	dlg.SetFilters(filterList(diaryFilter()))
 	dlg.Save(context.Background(), parent, func(res gio.AsyncResulter) {
 		file, err := dlg.SaveFinish(res)

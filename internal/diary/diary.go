@@ -65,16 +65,23 @@ type Image struct {
 // Diary is the content of one diary file.
 type Diary struct {
 	Version int               `json:"version"`
+	ID      string            `json:"id"` // stable identifier, used by sync
 	Title   string            `json:"title"`
 	Created time.Time         `json:"created"`
 	Entries []*Entry          `json:"entries"`
 	Images  map[string]*Image `json:"images"`
+	// Deleted records when entries were deleted, so that a merge does not
+	// bring them back from another copy of the diary.
+	Deleted map[string]time.Time `json:"deleted,omitempty"`
+
+	idAssigned bool
 }
 
 // New returns an empty diary.
 func New(title string) *Diary {
 	return &Diary{
 		Version: schemaVersion,
+		ID:      NewID(),
 		Title:   title,
 		Created: time.Now(),
 		Images:  map[string]*Image{},
@@ -108,10 +115,24 @@ func (d *Diary) RemoveEntry(id string) {
 	for i, e := range d.Entries {
 		if e.ID == id {
 			d.Entries = append(d.Entries[:i], d.Entries[i+1:]...)
+			if d.Deleted == nil {
+				d.Deleted = map[string]time.Time{}
+			}
+			// The deletion must win over the version that was deleted, even
+			// if that edit carries a later time from a skewed clock.
+			t := time.Now()
+			if !t.After(e.Modified) {
+				t = e.Modified.Add(time.Millisecond)
+			}
+			d.Deleted[id] = t
 			return
 		}
 	}
 }
+
+// IDAssigned reports whether the diary had no ID when it was loaded and got
+// a new one: it must then be saved before being synced.
+func (d *Diary) IDAssigned() bool { return d.idAssigned }
 
 // Entry returns the entry with the given ID, or nil.
 func (d *Diary) Entry(id string) *Entry {
@@ -171,6 +192,10 @@ func Unmarshal(data []byte) (*Diary, error) {
 	}
 	if d.Images == nil {
 		d.Images = map[string]*Image{}
+	}
+	if d.ID == "" {
+		d.ID = NewID()
+		d.idAssigned = true
 	}
 	return d, nil
 }
