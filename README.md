@@ -13,6 +13,14 @@ CGO_ENABLED=0 go build -o mydiary-server ./cmd/mydiary-server   # sync server, s
 ```
 
 ## Sync server
+To build the app and add it to the desktop menu:
+
+```sh
+./install.sh                  # for the current user, in ~/.local
+./install.sh --system         # for all users, in /usr/local (asks for sudo)
+./install.sh --uninstall      # add --system to remove a system install
+```
+
 
 `mydiary-server` keeps diaries in sync between computers. Diaries are uploaded
 **already encrypted**; the server never sees a passphrase, a key or any
