@@ -189,6 +189,11 @@ func (a *App) buildHeader() {
 	newEntry.SetActionName("win.new-entry")
 	hb.PackStart(newEntry)
 
+	delEntry := gtk.NewButtonFromIconName("user-trash-symbolic")
+	delEntry.SetTooltipText("Delete entry (Ctrl+Shift+Delete)")
+	delEntry.SetActionName("win.delete-entry")
+	hb.PackStart(delEntry)
+
 	menu := gio.NewMenu()
 	sec1 := gio.NewMenu()
 	sec1.Append("_New diary…", "win.new-diary")
@@ -198,6 +203,10 @@ func (a *App) buildHeader() {
 	sec1.Append("Change _passphrase…", "win.change-passphrase")
 	sec1.Append("_Close diary", "win.close-diary")
 	menu.AppendSection("", sec1)
+	secEntry := gio.NewMenu()
+	secEntry.Append("New _entry", "win.new-entry")
+	secEntry.Append("_Delete entry…", "win.delete-entry")
+	menu.AppendSection("", secEntry)
 	secSync := gio.NewMenu()
 	secSync.Append("S_ync now", "win.sync-now")
 	secSync.Append("Sync _settings…", "win.sync-settings")
