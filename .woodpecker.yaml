@@ -1,0 +1,55 @@
+when:
+  - event: push
+    branch: main
+
+steps:
+  - name: test
+    image: golang:1.27
+    environment:
+      CGO_ENABLED: "0"
+    commands:
+      # internal/ui and the root package need GTK; the server does not.
+      - PKGS=$(go list ./... | grep -v -e /internal/ui -e 'mydiary$')
+      - go vet $PKGS
+      - go test $PKGS
+
+  - name: publish
+    image: woodpeckerci/plugin-docker-buildx:5
+    settings:
+      registry: ghcr.io
+      repo: ghcr.io/oupsman/mydiary-server
+      tags:
+        - latest
+        - ${CI_COMMIT_SHA}
+      username:
+        from_secret: registry_username
+      password:
+        from_secret: registry_password
+
+  - name: upload-compose
+    image: appleboy/drone-scp:1.7
+    settings:
+      host:
+        from_secret: deploy_host
+      username:
+        from_secret: deploy_user
+      key:
+        from_secret: deploy_ssh_key
+      source: deploy/compose.yaml
+      target: /opt/mydiary
+      strip_components: 1
+
+  - name: deploy
+    image: appleboy/drone-ssh:1.8
+    settings:
+      host:
+        from_secret: deploy_host
+      username:
+        from_secret: deploy_user
+      key:
+        from_secret: deploy_ssh_key
+      script:
+        - cd /opt/mydiary
+        - echo "MYDIARY_TAG=${CI_COMMIT_SHA}" > .env
+        - docker compose pull
+        - docker compose up -d --remove-orphans

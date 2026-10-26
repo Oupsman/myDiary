@@ -1,0 +1,6 @@
+.git
+.idea
+.woodpecker.yaml
+*.diary
+/mydiary
+/mydiary-server

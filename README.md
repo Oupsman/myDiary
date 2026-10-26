@@ -92,3 +92,24 @@ file in the app's sync settings.
 When a diary is opened, after every save, every two minutes while the diary
 has no unsaved changes, and on F5. Unsaved edits are never uploaded. When
 offline, changes are uploaded at the next successful sync.
+
+## Docker deployment
+
+The `Dockerfile` builds the sync server only (static binary on distroless,
+non-root, data in the `/data` volume). `.woodpecker.yaml` runs the tests on
+every push to `main`, pushes `ghcr.io/oupsman/mydiary-server:<commit>` and
+`:latest`, copies `deploy/compose.yaml` to `/opt/mydiary` on the server and
+restarts the container there.
+
+Woodpecker secrets: `registry_username`, `registry_password` (a token allowed
+to push packages), `deploy_host`, `deploy_user`, `deploy_ssh_key`. The deploy
+user must be able to run `docker` and write `/opt/mydiary`, and the server must
+be logged in to the registry if the image is private.
+
+Tokens, with the container's data volume:
+
+```sh
+cd /opt/mydiary
+docker compose run --rm mydiary-server token add laptop
+docker compose run --rm mydiary-server token list
+```
