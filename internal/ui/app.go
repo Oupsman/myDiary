@@ -41,6 +41,7 @@ func Run(args []string) int {
 type entryRow struct {
 	row     *gtk.ListBoxRow
 	title   *gtk.Label
+	mood    *gtk.Label
 	date    *gtk.Label
 	snippet *gtk.Label
 }
@@ -62,6 +63,7 @@ type App struct {
 	pageStack  *gtk.Stack // "empty" | "entry"
 	titleEntry *gtk.Entry
 	dateLbl    *gtk.Label
+	moodBtn    *gtk.MenuButton
 	editor     *Editor
 
 	actions map[string]*gio.SimpleAction
@@ -148,6 +150,7 @@ const styleSheet = `
 .entry-list .row-title { font-weight: 700; }
 .entry-list .row-date { font-size: 9pt; }
 .entry-list .row-snippet { font-size: 9pt; }
+.entry-list .row-mood { font-size: 14pt; }
 .sidebar-pane { background-color: alpha(currentColor, 0.03); }
 .entry-title, .entry-title:focus-within {
   font-size: 20pt; font-weight: 700;
@@ -359,12 +362,18 @@ func (a *App) buildDiaryView() gtk.Widgetter {
 	a.dateLbl = gtk.NewLabel("")
 	a.dateLbl.SetXAlign(0)
 	a.dateLbl.AddCSSClass("dim-label")
-	a.dateLbl.SetMarginStart(48)
-	a.dateLbl.SetMarginBottom(8)
+
+	a.moodBtn = a.buildMoodButton()
+
+	meta := gtk.NewBox(gtk.OrientationHorizontal, 12)
+	meta.SetMarginStart(48)
+	meta.SetMarginBottom(8)
+	meta.Append(a.dateLbl)
+	meta.Append(a.moodBtn)
 
 	page := gtk.NewBox(gtk.OrientationVertical, 0)
 	page.Append(a.titleEntry)
-	page.Append(a.dateLbl)
+	page.Append(meta)
 	page.Append(a.editor.Widget)
 
 	emptyPage := gtk.NewBox(gtk.OrientationVertical, 8)
@@ -392,6 +401,61 @@ func (a *App) buildDiaryView() gtk.Widgetter {
 	return paned
 }
 
+// buildMoodButton returns the button showing the entry mood, with a popover
+// to change it.
+func (a *App) buildMoodButton() *gtk.MenuButton {
+	btn := gtk.NewMenuButton()
+	btn.AddCSSClass("flat")
+	btn.SetTooltipText("How do you feel? (Ctrl+Shift+M)")
+
+	box := gtk.NewBox(gtk.OrientationVertical, 0)
+	pop := gtk.NewPopover()
+	pop.SetChild(box)
+	btn.SetPopover(pop)
+
+	choice := func(label, key string) {
+		l := gtk.NewLabel(label)
+		l.SetXAlign(0)
+		b := gtk.NewButton()
+		b.SetChild(l)
+		b.AddCSSClass("flat")
+		b.ConnectClicked(func() {
+			pop.Popdown()
+			a.setMood(key)
+			a.focusEditor()
+		})
+		box.Append(b)
+	}
+	for _, m := range diary.Moods {
+		choice(m.Emoji+"  "+m.Label, m.Key)
+	}
+	box.Append(gtk.NewSeparator(gtk.OrientationHorizontal))
+	choice("No mood", "")
+	return btn
+}
+
+func (a *App) setMood(key string) {
+	if a.current == nil || a.current.Mood == key {
+		return
+	}
+	a.current.Mood = key
+	a.current.Modified = time.Now()
+	a.updateMood()
+	a.updateRow(a.current)
+	a.markDirty()
+}
+
+func (a *App) updateMood() {
+	if a.current == nil {
+		return
+	}
+	if m, ok := diary.MoodByKey(a.current.Mood); ok {
+		a.moodBtn.SetLabel(m.Emoji + "  " + m.Label)
+	} else {
+		a.moodBtn.SetLabel("Add a mood")
+	}
+}
+
 // ---- actions ---------------------------------------------------------------
 
 func (a *App) setupActions() {
@@ -416,6 +480,7 @@ func (a *App) setupActions() {
 	add("focus-list", a.focusList)
 	add("focus-title", func() { a.titleEntry.GrabFocus() })
 	add("focus-editor", a.focusEditor)
+	add("mood", func() { a.moodBtn.Popup() })
 	add("prev-entry", func() { a.moveSelection(-1) })
 	add("next-entry", func() { a.moveSelection(1) })
 
@@ -452,7 +517,7 @@ func (a *App) setupActions() {
 var (
 	diaryActions = []string{"save", "change-passphrase", "close-diary", "new-entry",
 		"search", "focus-list", "prev-entry", "next-entry", "sync-now"}
-	entryActions = []string{"delete-entry", "focus-title", "focus-editor", "bold", "italic",
+	entryActions = []string{"delete-entry", "focus-title", "focus-editor", "mood", "bold", "italic",
 		"underline", "font", "grow-font", "shrink-font", "clear-format", "insert-image", "paste-image"}
 )
 
@@ -745,6 +810,7 @@ func (a *App) showEntry(e *diary.Entry) {
 	a.titleEntry.SetText(e.Title)
 	a.loadingEntry = false
 	a.updateDate()
+	a.updateMood()
 	a.editor.Load(e.Content)
 	a.entryDirty = false
 	a.pageStack.SetVisibleChildName("entry")
@@ -809,17 +875,26 @@ func (a *App) rebuildList() {
 		r := &entryRow{
 			row:     gtk.NewListBoxRow(),
 			title:   gtk.NewLabel(""),
+			mood:    gtk.NewLabel(""),
 			date:    gtk.NewLabel(""),
 			snippet: gtk.NewLabel(""),
 		}
 		r.row.SetName(e.ID)
-		box := gtk.NewBox(gtk.OrientationVertical, 2)
 		for _, l := range []*gtk.Label{r.title, r.date, r.snippet} {
 			l.SetXAlign(0)
 			l.SetEllipsize(pango.EllipsizeEnd)
-			box.Append(l)
 		}
+		// The mood sits at the end of the title line.
+		r.title.SetHExpand(true)
+		head := gtk.NewBox(gtk.OrientationHorizontal, 6)
+		head.Append(r.title)
+		head.Append(r.mood)
+		box := gtk.NewBox(gtk.OrientationVertical, 2)
+		box.Append(head)
+		box.Append(r.date)
+		box.Append(r.snippet)
 		r.title.AddCSSClass("row-title")
+		r.mood.AddCSSClass("row-mood")
 		r.date.AddCSSClass("row-date")
 		r.date.AddCSSClass("dim-label")
 		r.snippet.AddCSSClass("row-snippet")
@@ -847,6 +922,13 @@ func (a *App) updateRow(e *diary.Entry) {
 		t = "Untitled"
 	}
 	r.title.SetText(t)
+	if m, ok := diary.MoodByKey(e.Mood); ok {
+		r.mood.SetText(m.Emoji)
+		r.mood.SetTooltipText(m.Label)
+		r.mood.SetVisible(true)
+	} else {
+		r.mood.SetVisible(false)
+	}
 	r.date.SetText(e.Created.Format("Mon 2 Jan 2006"))
 	snippet := strings.Join(strings.Fields(strings.ReplaceAll(e.PlainText(), "￼", "")), " ")
 	if len([]rune(snippet)) > 90 {
@@ -864,6 +946,9 @@ func (a *App) filterRow(row *gtk.ListBoxRow) bool {
 	e := a.diary.Entry(row.Name())
 	if e == nil {
 		return false
+	}
+	if m, ok := diary.MoodByKey(e.Mood); ok && strings.Contains(strings.ToLower(m.Label), q) {
+		return true
 	}
 	return strings.Contains(strings.ToLower(e.Title), q) ||
 		strings.Contains(strings.ToLower(e.PlainText()), q)

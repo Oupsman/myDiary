@@ -71,6 +71,20 @@ func TestMerge(t *testing.T) {
 	}
 }
 
+func TestMergeMoodOnly(t *testing.T) {
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	local := New("d")
+	local.Entries = []*Entry{entry("e", "x", t0)}
+	remote := local.Clone()
+	remote.Entries[0].Mood = "happy"
+	remote.Entries[0].Modified = t0.Add(time.Hour)
+
+	m, changed := Merge(local, remote)
+	if !changed || m.Entry("e").Mood != "happy" {
+		t.Fatalf("changed=%v mood=%q, want the remote mood", changed, m.Entry("e").Mood)
+	}
+}
+
 func TestMergeUnchanged(t *testing.T) {
 	d := New("d")
 	d.AddEntry()

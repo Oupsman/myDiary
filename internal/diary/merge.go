@@ -94,7 +94,7 @@ func Merge(local, remote *Diary) (merged *Diary, changed bool) {
 }
 
 func sameEntry(a, b *Entry) bool {
-	if a.Title != b.Title || len(a.Content) != len(b.Content) {
+	if a.Title != b.Title || a.Mood != b.Mood || len(a.Content) != len(b.Content) {
 		return false
 	}
 	ja, _ := json.Marshal(a.Content)

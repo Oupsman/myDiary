@@ -35,6 +35,7 @@ var shortcuts = []shortcutGroup{
 		{"focus-list", []string{"<Control>l", "F6"}, "Go to the entry list"},
 		{"focus-title", []string{"<Control>t"}, "Edit the entry title"},
 		{"focus-editor", []string{"<Control>e"}, "Go to the entry text"},
+		{"mood", []string{"<Control><Shift>m"}, "Set the mood"},
 		{"prev-entry", []string{"<Alt>Up", "<Control>Page_Up"}, "Previous entry"},
 		{"next-entry", []string{"<Alt>Down", "<Control>Page_Down"}, "Next entry"},
 	}},

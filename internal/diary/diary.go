@@ -44,7 +44,40 @@ type Entry struct {
 	Title    string    `json:"title"`
 	Created  time.Time `json:"created"`
 	Modified time.Time `json:"modified"`
+	Mood     string    `json:"mood,omitempty"` // a Mood key, or empty
 	Content  []Run     `json:"content"`
+}
+
+// Mood is how the writer felt. Entries store the key, so the emoji and label
+// can change without touching existing diaries.
+type Mood struct {
+	Key   string
+	Emoji string
+	Label string
+}
+
+// Moods lists the moods offered, roughly from best to worst.
+var Moods = []Mood{
+	{"excited", "🤩", "Excited"},
+	{"happy", "😄", "Happy"},
+	{"grateful", "🥰", "Grateful"},
+	{"calm", "😌", "Calm"},
+	{"neutral", "😐", "Neutral"},
+	{"tired", "😴", "Tired"},
+	{"anxious", "😰", "Anxious"},
+	{"sad", "😢", "Sad"},
+	{"angry", "😠", "Angry"},
+}
+
+// MoodByKey returns the mood with the given key. ok is false for an empty
+// key, or for one this version does not know.
+func MoodByKey(key string) (m Mood, ok bool) {
+	for _, m := range Moods {
+		if m.Key == key {
+			return m, true
+		}
+	}
+	return Mood{}, false
 }
 
 // PlainText returns the entry text without formatting or images.

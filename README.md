@@ -2,7 +2,8 @@
 
 A private diary for the Linux desktop (Go + GTK 4). Each diary is a single
 file encrypted with Argon2id + XChaCha20-Poly1305. Entries support fonts,
-sizes, bold/italic/underline and embedded pictures, and every action has a
+sizes, bold/italic/underline and embedded pictures, and can carry a mood
+(Ctrl+Shift+M) shown as an emoji in the entry list. Every action has a
 keyboard shortcut (press F1 in the app).
 
 ## Build
@@ -12,7 +13,6 @@ go build -o mydiary .                                     # the app (needs GTK 4
 CGO_ENABLED=0 go build -o mydiary-server ./cmd/mydiary-server   # sync server, static binary
 ```
 
-## Sync server
 To build the app and add it to the desktop menu:
 
 ```sh
@@ -21,6 +21,7 @@ To build the app and add it to the desktop menu:
 ./install.sh --uninstall      # add --system to remove a system install
 ```
 
+## Sync server
 
 `mydiary-server` keeps diaries in sync between computers. Diaries are uploaded
 **already encrypted**; the server never sees a passphrase, a key or any
