@@ -13,7 +13,6 @@ import (
 	"strconv"
 	"strings"
 	"time"
-	"unicode/utf8"
 
 	"github.com/oupsman/mydiary/internal/syncproto"
 )
@@ -163,11 +162,7 @@ func (s *Server) put(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "body is not an encrypted diary", http.StatusUnsupportedMediaType)
 		return
 	}
-	label := r.Header.Get(syncproto.LabelHeader)
-	if !utf8.ValidString(label) || len(label) > 200 {
-		label = ""
-	}
-	info, err := s.Store.Put(id, base, label, data)
+	info, err := s.Store.Put(id, base, data)
 	if err != nil {
 		if errors.Is(err, ErrConflict) && info.Version > 0 {
 			w.Header().Set("ETag", syncproto.ETag(info.Version))

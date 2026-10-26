@@ -44,7 +44,7 @@ type device struct {
 func (dv *device) sync(t *testing.T, c *Client) Result {
 	t.Helper()
 	res, err := Sync(context.Background(), c, Request{
-		Diary: dv.d.Clone(), Key: dv.key.Clone(), Version: dv.version, Pending: dv.pending, Label: "test",
+		Diary: dv.d.Clone(), Key: dv.key.Clone(), Version: dv.version, Pending: dv.pending,
 	})
 	if err != nil {
 		t.Fatal(err)
@@ -150,22 +150,22 @@ func TestServerRefusals(t *testing.T) {
 
 	c, _ := New(Config{ServerURL: srv.URL, Token: tok})
 	id := diary.NewID()
-	if _, err := c.Put(ctx, id, 0, "x", []byte("plaintext diary!")); err == nil {
+	if _, err := c.Put(ctx, id, 0, []byte("plaintext diary!")); err == nil {
 		t.Fatal("plaintext upload accepted")
 	}
 	key, _ := vault.NewKey([]byte("pw"), testParams)
 	sealed, _ := key.Seal([]byte("{}"))
-	if _, err := c.Put(ctx, id, 0, "x", sealed); err != nil {
+	if _, err := c.Put(ctx, id, 0, sealed); err != nil {
 		t.Fatal(err)
 	}
-	if _, err := c.Put(ctx, id, 0, "x", sealed); !errors.Is(err, ErrConflict) {
+	if _, err := c.Put(ctx, id, 0, sealed); !errors.Is(err, ErrConflict) {
 		t.Fatalf("double create: %v", err)
 	}
-	if _, err := c.Put(ctx, id, 7, "x", sealed); !errors.Is(err, ErrConflict) {
+	if _, err := c.Put(ctx, id, 7, sealed); !errors.Is(err, ErrConflict) {
 		t.Fatalf("stale version: %v", err)
 	}
 	list, err := c.List(ctx)
-	if err != nil || len(list) != 1 || list[0].ID != id || list[0].Label != "x" {
+	if err != nil || len(list) != 1 || list[0].ID != id {
 		t.Fatalf("list: %+v %v", list, err)
 	}
 	req, _ := http.NewRequest(http.MethodGet, srv.URL+"/v1/diaries/..%2fetc", nil)

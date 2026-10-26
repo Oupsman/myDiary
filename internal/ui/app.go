@@ -543,7 +543,12 @@ func (a *App) setDiary(path string, d *diary.Diary, k *vault.Key) {
 	a.dirty = false
 	a.current = nil
 	a.editor.SetDiary(d)
-	updateState(func(s *state) { s.LastPath = path })
+	updateState(func(s *state) {
+		s.LastPath = path
+		st := s.Sync[d.ID]
+		st.Path = path
+		s.Sync[d.ID] = st
+	})
 
 	a.search.SetText("")
 	a.rebuildList()
@@ -920,6 +925,9 @@ type state struct {
 type diarySyncState struct {
 	Version int64 `json:"version"` // server version the local file matches
 	Pending bool  `json:"pending"` // local changes not uploaded yet
+	// Path is where this diary lives on this computer. It is never sent to
+	// the server; it only helps recognise diaries when downloading.
+	Path string `json:"path,omitempty"`
 }
 
 func statePath() string {

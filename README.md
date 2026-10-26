@@ -16,8 +16,8 @@ CGO_ENABLED=0 go build -o mydiary-server ./cmd/mydiary-server   # sync server, s
 
 `mydiary-server` keeps diaries in sync between computers. Diaries are uploaded
 **already encrypted**; the server never sees a passphrase, a key or any
-content. It stores only opaque blobs, a version number and a label (the diary
-file name). Merging is done by the app, entry by entry: the most recent
+content, not even file names: diaries are identified by a random ID. It stores
+only opaque blobs and a version number. Merging is done by the app, entry by entry: the most recent
 version of each entry wins, and deletions propagate.
 
 It speaks plain HTTP on localhost and is meant to sit behind a TLS reverse

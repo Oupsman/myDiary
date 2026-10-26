@@ -27,7 +27,6 @@ type Request struct {
 	Key     *vault.Key   // a clone of the local key
 	Version int64        // server version last synced with, 0 if never
 	Pending bool         // the local diary has changes not uploaded yet
-	Label   string       // human-readable name stored on the server
 }
 
 // Result is the outcome of a successful synchronisation.
@@ -88,7 +87,7 @@ func Sync(ctx context.Context, c *Client, req Request) (Result, error) {
 		if err != nil {
 			return res, err
 		}
-		v, err := c.Put(ctx, req.Diary.ID, res.Version, req.Label, sealed)
+		v, err := c.Put(ctx, req.Diary.ID, res.Version, sealed)
 		if errors.Is(err, ErrConflict) {
 			// Someone uploaded in between: pull their version and merge again.
 			req.Pending = true

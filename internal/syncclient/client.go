@@ -156,8 +156,8 @@ func (c *Client) Get(ctx context.Context, id string, have int64) (data []byte, v
 
 // Put uploads a diary based on version base (0 to create it) and returns the
 // new version, or ErrConflict if the server has moved on.
-func (c *Client) Put(ctx context.Context, id string, base int64, label string, data []byte) (int64, error) {
-	hdr := map[string]string{"Content-Type": "application/octet-stream", syncproto.LabelHeader: label}
+func (c *Client) Put(ctx context.Context, id string, base int64, data []byte) (int64, error) {
+	hdr := map[string]string{"Content-Type": "application/octet-stream"}
 	if base == 0 {
 		hdr["If-None-Match"] = "*"
 	} else {

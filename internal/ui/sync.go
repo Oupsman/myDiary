@@ -90,10 +90,6 @@ func (a *App) updateSyncStatus(st syncStatus, detail string) {
 	a.syncBtn.SetVisible(true)
 }
 
-func (a *App) syncLabel() string {
-	return strings.TrimSuffix(filepath.Base(a.path), diary.FileExtension)
-}
-
 // ---- sync run --------------------------------------------------------------
 
 // startSync syncs the open diary in the background. Only saved content is
@@ -119,7 +115,6 @@ func (a *App) startSync() {
 		Key:     a.key.Clone(),
 		Version: st.Version,
 		Pending: st.Pending,
-		Label:   a.syncLabel(),
 	}
 	d, saveSeq := a.diary, a.saveSeq
 	a.syncing = true
@@ -184,7 +179,9 @@ func (a *App) syncDone(d *diary.Diary, saveSeq int, res syncclient.Result, err e
 	id := d.ID
 	userSaved := a.saveSeq != saveSeq
 	updateState(func(s *state) {
-		s.Sync[id] = diarySyncState{Version: res.Version, Pending: userSaved}
+		st := s.Sync[id]
+		st.Version, st.Pending = res.Version, userSaved
+		s.Sync[id] = st
 	})
 	a.updateSyncStatus(syncOK, "")
 }
@@ -354,6 +351,7 @@ func (a *App) chooseRemoteDiary(client *syncclient.Client, list []syncproto.Diar
 	if len(list) == 0 {
 		d.setError("There is no diary on the server yet.")
 	}
+	known := loadState().Sync
 	lb := gtk.NewListBox()
 	lb.AddCSSClass("boxed-list")
 	lb.SetSelectionMode(gtk.SelectionBrowse)
@@ -364,9 +362,9 @@ func (a *App) chooseRemoteDiary(client *syncclient.Client, list []syncproto.Diar
 		box.SetMarginBottom(8)
 		box.SetMarginStart(12)
 		box.SetMarginEnd(12)
-		name := info.Label
-		if name == "" {
-			name = info.ID
+		name := "Diary " + syncproto.ShortID(info.ID)
+		if p := known[info.ID].Path; p != "" {
+			name += " — on this computer: " + filepath.Base(p)
 		}
 		t := gtk.NewLabel(name)
 		t.SetXAlign(0)
@@ -408,7 +406,7 @@ func (a *App) chooseRemoteDiary(client *syncclient.Client, list []syncproto.Diar
 }
 
 func (a *App) fetchRemoteDiary(client *syncclient.Client, info syncproto.DiaryInfo) {
-	chooseDiaryToCreateNamed(&a.win.Window, info.Label, func(path string) {
+	chooseDiaryToCreateNamed(&a.win.Window, "Diary "+info.ID[:8], func(path string) {
 		go func() {
 			ctx, cancel := context.WithTimeout(context.Background(), syncTimeout)
 			data, version, _, err := client.Get(ctx, info.ID, 0)
@@ -452,7 +450,7 @@ func (a *App) unlockDownloaded(path, id string, data []byte, version int64) {
 		d, k = dd, key
 		return ""
 	}, func() {
-		updateState(func(s *state) { s.Sync[id] = diarySyncState{Version: version} })
+		updateState(func(s *state) { s.Sync[id] = diarySyncState{Version: version, Path: path} })
 		a.setDiary(path, d, k)
 	})
 }

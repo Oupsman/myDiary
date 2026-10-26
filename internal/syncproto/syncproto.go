@@ -19,17 +19,24 @@ import (
 	"time"
 )
 
-// LabelHeader carries a human-readable name for the diary (the client uses
-// its file name) so it can be recognised when downloading on a new computer.
-const LabelHeader = "X-Diary-Label"
-
 // DiaryInfo describes a stored diary.
 type DiaryInfo struct {
 	ID      string    `json:"id"`
 	Version int64     `json:"version"`
 	Size    int64     `json:"size"`
 	Updated time.Time `json:"updated"`
-	Label   string    `json:"label,omitempty"`
+}
+
+// ShortID formats the start of a diary ID for display, e.g. "3f9a 1c07 b2e4".
+func ShortID(id string) string {
+	var b strings.Builder
+	for i := 0; i < len(id) && i < 12; i += 4 {
+		if i > 0 {
+			b.WriteByte(' ')
+		}
+		b.WriteString(id[i:min(i+4, len(id))])
+	}
+	return b.String()
 }
 
 // ValidID reports whether id is an acceptable diary ID (lowercase hex).

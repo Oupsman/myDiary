@@ -35,7 +35,39 @@ func NewStore(dir string) (*Store, error) {
 	if err := os.MkdirAll(dir, 0o700); err != nil {
 		return nil, err
 	}
-	return &Store{dir: dir}, nil
+	s := &Store{dir: dir}
+	if err := s.scrubLabels(); err != nil {
+		return nil, err
+	}
+	return s, nil
+}
+
+// scrubLabels rewrites metadata written by older versions, which stored the
+// diary file name as a label, so that no name is kept on the server.
+func (s *Store) scrubLabels() error {
+	names, err := filepath.Glob(filepath.Join(s.dir, "*.json"))
+	if err != nil {
+		return err
+	}
+	for _, n := range names {
+		b, err := os.ReadFile(n)
+		if err != nil {
+			return err
+		}
+		var raw map[string]json.RawMessage
+		if json.Unmarshal(b, &raw) != nil {
+			continue
+		}
+		if _, ok := raw["label"]; !ok {
+			continue
+		}
+		delete(raw, "label")
+		clean, _ := json.Marshal(raw)
+		if err := vault.WriteFileAtomic(n, clean); err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 func (s *Store) metaPath(id string) string { return filepath.Join(s.dir, id+".json") }
@@ -100,7 +132,7 @@ func (s *Store) Stat(id string) (syncproto.DiaryInfo, error) {
 
 // Put stores a new version. ifMatch is the version the client based its
 // upload on, or 0 to create a diary that must not exist yet.
-func (s *Store) Put(id string, ifMatch int64, label string, data []byte) (syncproto.DiaryInfo, error) {
+func (s *Store) Put(id string, ifMatch int64, data []byte) (syncproto.DiaryInfo, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -121,10 +153,6 @@ func (s *Store) Put(id string, ifMatch int64, label string, data []byte) (syncpr
 		Version: cur.Version + 1,
 		Size:    int64(len(data)),
 		Updated: time.Now().UTC(),
-		Label:   label,
-	}
-	if info.Label == "" {
-		info.Label = cur.Label
 	}
 	if err := vault.WriteFileAtomic(s.blobPath(id, info.Version), data); err != nil {
 		return cur, err
