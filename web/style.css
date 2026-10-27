@@ -122,7 +122,9 @@ body.show-entry .entry-pane { display: flex; }
 
 /* ---- entry list ------------------------------------------------------ */
 
-.search { padding: 8px 12px; }
+.search { padding: 8px 12px; display: flex; gap: 8px; }
+.search button { white-space: nowrap; }
+.search button[aria-pressed="true"] { background: var(--selected); border-color: var(--accent); color: var(--accent); }
 .entries {
   list-style: none;
   margin: 0;
@@ -195,7 +197,17 @@ body.show-entry .entry-pane { display: flex; }
   font-size: 14px;
   padding-bottom: 8px;
 }
-.meta select { width: auto; min-height: 36px; padding: 4px 8px; }
+.meta select, .meta input { width: auto; min-height: 36px; padding: 4px 8px; }
+.meta input { color: var(--dim); }
+.entry-tags {
+  border: none;
+  background: none;
+  padding: 0 0 8px;
+  min-height: 32px;
+  color: var(--dim);
+}
+.entry-tags:focus { outline: none; color: var(--text); }
+.row-tags { color: var(--accent); }
 .toolbar {
   display: flex;
   gap: 4px;

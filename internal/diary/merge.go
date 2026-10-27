@@ -13,6 +13,7 @@ func (d *Diary) Clone() *Diary {
 	for i, e := range d.Entries {
 		ce := *e
 		ce.Content = append([]Run(nil), e.Content...)
+		ce.Tags = append([]string(nil), e.Tags...)
 		c.Entries[i] = &ce
 	}
 	c.Images = make(map[string]*Image, len(d.Images))
@@ -93,11 +94,13 @@ func Merge(local, remote *Diary) (merged *Diary, changed bool) {
 	return m, changed
 }
 
+// sameEntry reports whether two versions of an entry differ only in their
+// modification time. Every other field counts, so that a change to any of
+// them, now or added later, is merged.
 func sameEntry(a, b *Entry) bool {
-	if a.Title != b.Title || a.Mood != b.Mood || len(a.Content) != len(b.Content) {
-		return false
-	}
-	ja, _ := json.Marshal(a.Content)
-	jb, _ := json.Marshal(b.Content)
+	ca, cb := *a, *b
+	ca.Modified, cb.Modified = time.Time{}, time.Time{}
+	ja, _ := json.Marshal(ca)
+	jb, _ := json.Marshal(cb)
 	return string(ja) == string(jb)
 }

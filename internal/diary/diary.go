@@ -45,7 +45,69 @@ type Entry struct {
 	Created  time.Time `json:"created"`
 	Modified time.Time `json:"modified"`
 	Mood     string    `json:"mood,omitempty"` // a Mood key, or empty
+	Tags     []string  `json:"tags,omitempty"` // normalised with NormalizeTags
 	Content  []Run     `json:"content"`
+}
+
+// NormalizeTags trims tags, drops a leading "#", empty tags and duplicates
+// (ignoring case), keeping the first spelling and the order.
+func NormalizeTags(tags []string) []string {
+	var out []string
+	seen := map[string]bool{}
+	for _, t := range tags {
+		t = strings.TrimSpace(strings.TrimLeft(strings.TrimSpace(t), "#"))
+		if t == "" || seen[strings.ToLower(t)] {
+			continue
+		}
+		seen[strings.ToLower(t)] = true
+		out = append(out, t)
+	}
+	return out
+}
+
+// Matches reports whether the entry matches a search: query is found in the
+// title, the text, the mood name or a tag, ignoring case. A leading "#" only
+// searches tags.
+func (e *Entry) Matches(query string) bool {
+	q := strings.ToLower(strings.TrimSpace(query))
+	if q == "" {
+		return true
+	}
+	if tag, ok := strings.CutPrefix(q, "#"); ok {
+		for _, t := range e.Tags {
+			if strings.Contains(strings.ToLower(t), tag) {
+				return true
+			}
+		}
+		return false
+	}
+	if strings.Contains(strings.ToLower(e.Title), q) || strings.Contains(strings.ToLower(e.PlainText()), q) {
+		return true
+	}
+	if m, ok := MoodByKey(e.Mood); ok && strings.Contains(strings.ToLower(m.Label), q) {
+		return true
+	}
+	for _, t := range e.Tags {
+		if strings.Contains(strings.ToLower(t), q) {
+			return true
+		}
+	}
+	return false
+}
+
+// OnThisDay reports whether the entry was written on the same day as now in
+// an earlier year. On February 28th of a common year, February 29th counts.
+func (e *Entry) OnThisDay(now time.Time) bool {
+	c := e.Created.In(now.Location())
+	if c.Year() >= now.Year() {
+		return false
+	}
+	if c.Month() == now.Month() && c.Day() == now.Day() {
+		return true
+	}
+	leap := func(y int) bool { return y%4 == 0 && (y%100 != 0 || y%400 == 0) }
+	return now.Month() == time.February && now.Day() == 28 && !leap(now.Year()) &&
+		c.Month() == time.February && c.Day() == 29
 }
 
 // Mood is how the writer felt. Entries store the key, so the emoji and label

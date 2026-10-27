@@ -3,8 +3,26 @@
 A private diary for the Linux desktop (Go + GTK 4). Each diary is a single
 file encrypted with Argon2id + XChaCha20-Poly1305. Entries support fonts,
 sizes, bold/italic/underline and embedded pictures, and can carry a mood
-(Ctrl+Shift+M) shown as an emoji in the entry list. Every action has a
+(Ctrl+Shift+M) shown as an emoji in the entry list, and tags (Ctrl+Shift+T).
+An entry's date can be changed (Ctrl+Shift+D), and "On this day" (Ctrl+D)
+lists what you wrote on today's date in earlier years. Search matches titles,
+text, moods and tags; start with `#` to search tags only. Every action has a
 keyboard shortcut (press F1 in the app).
+
+## Day One import and export
+
+**Import from Day One** (main menu) adds the entries of a Day One export to
+the open diary. In Day One, export the journal as **JSON** and pick the zip
+(or a lone `.json`). Titles, dates, tags, bold, italic, headings, lists and
+photos are kept; photos are shrunk to 2048 pixels and stripped of their
+metadata (GPS position included). Videos, audio recordings and PDFs are left
+out and replaced by a note in the text. HEIC photos are kept as they are and
+show only if the system can read HEIC (on Arch: `libheif`). Importing the same
+export twice adds nothing.
+
+**Export** (Ctrl+Shift+E) writes an **unencrypted** zip: one Markdown file
+per entry with its title, date, mood and tags as YAML front matter, the
+pictures as files, and `diary.json` with everything, formatting included.
 
 ## Build
 
@@ -106,8 +124,10 @@ offline, changes are uploaded at the next successful sync.
 
 `mydiary-server serve -web DIR` also serves a web version of the app, for
 reading and writing entries from a phone's browser: entry list, search,
-moods, and text with bold, italic and underline. Fonts, sizes and pictures
-written on the desktop are shown and kept, but cannot be added from the web.
+"On this day", moods, tags, dates, text with bold, italic and underline, and
+photos from the camera or the library (shrunk on the phone to 2048 pixels,
+metadata removed, before upload). Fonts and sizes written on the desktop are
+shown and kept, but cannot be set from the web.
 
 The diary is decrypted in the browser by the same Go code as the desktop app,
 compiled to WebAssembly (`cmd/mydiary-wasm`): the server still only stores

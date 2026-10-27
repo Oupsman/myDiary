@@ -41,9 +41,12 @@
       <span id="sync-status" class="sync-status" role="status"></span>
       <button id="lock-btn" type="button" title="Lock">Lock</button>
     </header>
-    <div class="search"><input id="search" type="search" placeholder="Search entries"></div>
+    <div class="search">
+      <input id="search" type="search" placeholder="Search entries">
+      <button id="otd-btn" type="button" aria-pressed="false" title="Entries written on today's date in earlier years">On this day</button>
+    </div>
     <ul id="entries" class="entries"></ul>
-    <p id="no-entries" class="dim empty" hidden>No entries yet.</p>
+    <p id="no-entries" class="dim empty" hidden></p>
     <button id="new-btn" type="button" class="fab" title="New entry" aria-label="New entry">+</button>
   </section>
 
@@ -57,13 +60,16 @@
     <article id="entry" hidden>
       <input id="entry-title" class="entry-title" placeholder="Title" autocomplete="off">
       <div class="meta">
-        <span id="entry-date" class="dim"></span>
+        <input id="entry-date" type="datetime-local" aria-label="Date">
         <select id="entry-mood" aria-label="Mood"></select>
       </div>
+      <input id="entry-tags" class="entry-tags" placeholder="Tags, separated by commas" autocomplete="off" autocapitalize="off">
       <div class="toolbar" role="toolbar">
         <button type="button" data-cmd="bold" title="Bold"><b>B</b></button>
         <button type="button" data-cmd="italic" title="Italic"><i>I</i></button>
         <button type="button" data-cmd="underline" title="Underline"><u>U</u></button>
+        <button id="photo-btn" type="button" title="Add a photo">Photo</button>
+        <input id="photo-input" type="file" accept="image/*" hidden>
       </div>
       <div id="editor" class="editor" contenteditable="true" spellcheck="true"></div>
     </article>

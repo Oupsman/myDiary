@@ -56,14 +56,17 @@ type App struct {
 	stack       *gtk.Stack // "welcome" | "diary"
 	recentBtn   *gtk.Button
 
-	search *gtk.SearchEntry
-	list   *gtk.ListBox
-	rows   map[string]*entryRow
+	search    *gtk.SearchEntry
+	onThisDay *gtk.ToggleButton
+	list      *gtk.ListBox
+	emptyLbl  *gtk.Label
+	rows      map[string]*entryRow
 
 	pageStack  *gtk.Stack // "empty" | "entry"
 	titleEntry *gtk.Entry
-	dateLbl    *gtk.Label
+	dateBtn    *gtk.MenuButton
 	moodBtn    *gtk.MenuButton
+	tagsEntry  *gtk.Entry
 	editor     *Editor
 
 	actions map[string]*gio.SimpleAction
@@ -151,6 +154,9 @@ const styleSheet = `
 .entry-list .row-date { font-size: 9pt; }
 .entry-list .row-snippet { font-size: 9pt; }
 .entry-list .row-mood { font-size: 14pt; }
+.tags-entry, .tags-entry:focus-within {
+  background: none; border: none; box-shadow: none; outline: none;
+}
 .sidebar-pane { background-color: alpha(currentColor, 0.03); }
 .entry-title, .entry-title:focus-within {
   font-size: 20pt; font-weight: 700;
@@ -203,6 +209,10 @@ func (a *App) buildHeader() {
 	sec1.Append("Change _passphrase…", "win.change-passphrase")
 	sec1.Append("_Close diary", "win.close-diary")
 	menu.AppendSection("", sec1)
+	secData := gio.NewMenu()
+	secData.Append("_Import from Day One…", "win.import-dayone")
+	secData.Append("E_xport…", "win.export")
+	menu.AppendSection("", secData)
 	secEntry := gio.NewMenu()
 	secEntry.Append("New _entry", "win.new-entry")
 	secEntry.Append("_Delete entry…", "win.delete-entry")
@@ -291,10 +301,7 @@ func (a *App) buildDiaryView() gtk.Widgetter {
 	// Sidebar: search + entry list.
 	a.search = gtk.NewSearchEntry()
 	a.search.SetPlaceholderText("Search entries (Ctrl+F)")
-	a.search.SetMarginTop(8)
-	a.search.SetMarginBottom(8)
-	a.search.SetMarginStart(8)
-	a.search.SetMarginEnd(8)
+	a.search.SetHExpand(true)
 	a.search.ConnectSearchChanged(func() {
 		a.commit()
 		a.list.InvalidateFilter()
@@ -309,11 +316,12 @@ func (a *App) buildDiaryView() gtk.Widgetter {
 	a.list.AddCSSClass("entry-list")
 	a.list.AddCSSClass("navigation-sidebar")
 	a.list.SetSelectionMode(gtk.SelectionBrowse)
-	empty := gtk.NewLabel("No entries yet.\nPress Ctrl+N to write one.")
-	empty.SetJustify(gtk.JustifyCenter)
-	empty.AddCSSClass("dim-label")
-	empty.SetMarginTop(24)
-	a.list.SetPlaceholder(empty)
+	a.emptyLbl = gtk.NewLabel("")
+	a.emptyLbl.SetJustify(gtk.JustifyCenter)
+	a.emptyLbl.AddCSSClass("dim-label")
+	a.emptyLbl.SetMarginTop(24)
+	a.list.SetPlaceholder(a.emptyLbl)
+	a.onThisDay = a.buildOnThisDayButton()
 	a.list.SetFilterFunc(a.filterRow)
 	a.list.ConnectRowSelected(func(row *gtk.ListBoxRow) {
 		if a.suppressSelect {
@@ -338,7 +346,14 @@ func (a *App) buildDiaryView() gtk.Widgetter {
 
 	sidebar := gtk.NewBox(gtk.OrientationVertical, 0)
 	sidebar.AddCSSClass("sidebar-pane")
-	sidebar.Append(a.search)
+	searchRow := gtk.NewBox(gtk.OrientationHorizontal, 6)
+	searchRow.SetMarginTop(8)
+	searchRow.SetMarginBottom(8)
+	searchRow.SetMarginStart(8)
+	searchRow.SetMarginEnd(8)
+	searchRow.Append(a.search)
+	searchRow.Append(a.onThisDay)
+	sidebar.Append(searchRow)
 	sidebar.Append(listScroll)
 	sidebar.SetSizeRequest(260, -1)
 
@@ -368,21 +383,19 @@ func (a *App) buildDiaryView() gtk.Widgetter {
 	})
 	a.titleEntry.ConnectActivate(a.focusEditor)
 
-	a.dateLbl = gtk.NewLabel("")
-	a.dateLbl.SetXAlign(0)
-	a.dateLbl.AddCSSClass("dim-label")
-
+	a.dateBtn = a.buildDateButton()
 	a.moodBtn = a.buildMoodButton()
+	a.tagsEntry = a.buildTagsEntry()
 
 	meta := gtk.NewBox(gtk.OrientationHorizontal, 12)
-	meta.SetMarginStart(48)
-	meta.SetMarginBottom(8)
-	meta.Append(a.dateLbl)
+	meta.SetMarginStart(42)
+	meta.Append(a.dateBtn)
 	meta.Append(a.moodBtn)
 
 	page := gtk.NewBox(gtk.OrientationVertical, 0)
 	page.Append(a.titleEntry)
 	page.Append(meta)
+	page.Append(a.tagsEntry)
 	page.Append(a.editor.Widget)
 
 	emptyPage := gtk.NewBox(gtk.OrientationVertical, 8)
@@ -490,6 +503,11 @@ func (a *App) setupActions() {
 	add("focus-title", func() { a.titleEntry.GrabFocus() })
 	add("focus-editor", a.focusEditor)
 	add("mood", func() { a.moodBtn.Popup() })
+	add("edit-date", func() { a.dateBtn.Popup() })
+	add("focus-tags", func() { a.tagsEntry.GrabFocus() })
+	add("on-this-day", func() { a.onThisDay.SetActive(!a.onThisDay.Active()) })
+	add("import-dayone", a.importDayOne)
+	add("export", a.exportDiary)
 	add("prev-entry", func() { a.moveSelection(-1) })
 	add("next-entry", func() { a.moveSelection(1) })
 
@@ -525,8 +543,9 @@ func (a *App) setupActions() {
 
 var (
 	diaryActions = []string{"save", "change-passphrase", "close-diary", "new-entry",
-		"search", "focus-list", "prev-entry", "next-entry", "sync-now"}
-	entryActions = []string{"delete-entry", "focus-title", "focus-editor", "mood", "bold", "italic",
+		"search", "focus-list", "prev-entry", "next-entry", "sync-now", "on-this-day",
+		"import-dayone", "export"}
+	entryActions = []string{"delete-entry", "focus-title", "focus-editor", "mood", "edit-date", "focus-tags", "bold", "italic",
 		"underline", "font", "grow-font", "shrink-font", "clear-format", "insert-image", "paste-image"}
 )
 
@@ -817,6 +836,7 @@ func (a *App) showEntry(e *diary.Entry) {
 	}
 	a.loadingEntry = true
 	a.titleEntry.SetText(e.Title)
+	a.tagsEntry.SetText(strings.Join(e.Tags, ", "))
 	a.loadingEntry = false
 	a.updateDate()
 	a.updateMood()
@@ -829,7 +849,7 @@ func (a *App) updateDate() {
 	if a.current == nil {
 		return
 	}
-	a.dateLbl.SetText(a.current.Created.Format("Monday 2 January 2006, 15:04"))
+	a.dateBtn.SetLabel(a.current.Created.Local().Format("Monday 2 January 2006, 15:04"))
 }
 
 func (a *App) newEntry() {
@@ -938,7 +958,11 @@ func (a *App) updateRow(e *diary.Entry) {
 	} else {
 		r.mood.SetVisible(false)
 	}
-	r.date.SetText(e.Created.Format("Mon 2 Jan 2006"))
+	date := e.Created.Local().Format("Mon 2 Jan 2006")
+	if len(e.Tags) > 0 {
+		date += "  ·  #" + strings.Join(e.Tags, " #")
+	}
+	r.date.SetText(date)
 	snippet := strings.Join(strings.Fields(strings.ReplaceAll(e.PlainText(), "￼", "")), " ")
 	if len([]rune(snippet)) > 90 {
 		snippet = string([]rune(snippet)[:90]) + "…"
@@ -948,19 +972,17 @@ func (a *App) updateRow(e *diary.Entry) {
 }
 
 func (a *App) filterRow(row *gtk.ListBoxRow) bool {
-	q := strings.ToLower(strings.TrimSpace(a.search.Text()))
-	if q == "" || a.diary == nil {
+	if a.diary == nil {
 		return true
 	}
 	e := a.diary.Entry(row.Name())
 	if e == nil {
 		return false
 	}
-	if m, ok := diary.MoodByKey(e.Mood); ok && strings.Contains(strings.ToLower(m.Label), q) {
-		return true
+	if a.onThisDay.Active() && !e.OnThisDay(time.Now()) {
+		return false
 	}
-	return strings.Contains(strings.ToLower(e.Title), q) ||
-		strings.Contains(strings.ToLower(e.PlainText()), q)
+	return e.Matches(a.search.Text())
 }
 
 func (a *App) focusList() {

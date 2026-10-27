@@ -143,6 +143,8 @@ async function onUnlock(ev) {
 let currentId = null;   // entry shown in the editor
 let entryDirty = false; // editor content not yet given to the core
 let loadedModified = null;
+let dateTouched = false; // the date was changed: send it on commit
+let onThisDay = false;
 let moods = [];
 const imageURLs = new Map();
 
@@ -164,6 +166,18 @@ function enterApp() {
   $('sync-status').addEventListener('click', () => { syncPaused = false; syncNow(); });
   $('entry-title').addEventListener('input', edited);
   $('entry-mood').addEventListener('change', () => { edited(); commit(); });
+  $('entry-tags').addEventListener('input', edited);
+  $('entry-date').addEventListener('change', () => {
+    if (!$('entry-date').value) return;
+    dateTouched = true;
+    edited();
+    commit();
+  });
+  $('otd-btn').addEventListener('click', () => {
+    onThisDay = !onThisDay;
+    $('otd-btn').setAttribute('aria-pressed', onThisDay);
+    renderList();
+  });
   setupEditor();
 
   addEventListener('popstate', () => { if (!history.state?.entry) showList(); });
@@ -197,8 +211,14 @@ function moodOf(key) {
 }
 
 function renderList() {
-  const items = coreJSON('entries', $('search').value);
-  $('no-entries').hidden = items.length > 0 || $('search').value !== '';
+  const items = coreJSON('entries', $('search').value, onThisDay);
+  const none = $('no-entries');
+  none.hidden = items.length > 0;
+  if (onThisDay) {
+    none.textContent = `Nothing was written on ${new Date().toLocaleDateString(undefined, { day: 'numeric', month: 'long' })} in earlier years.`;
+  } else {
+    none.textContent = $('search').value ? 'No matching entries.' : 'No entries yet.';
+  }
   $('entries').replaceChildren(...items.map((e) => {
     const li = document.createElement('li');
     li.dataset.id = e.id;
@@ -212,8 +232,10 @@ function renderList() {
       ms.title = m.label;
       head.append(ms);
     }
-    li.append(head, div('row-date dim', new Date(e.created).toLocaleDateString(undefined,
-      { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })));
+    const date = div('row-date dim', new Date(e.created).toLocaleDateString(undefined,
+      { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' }));
+    if (e.tags?.length) date.append('  ·  ', span('row-tags', '#' + e.tags.join(' #')));
+    li.append(head, date);
     if (e.snippet) li.append(div('row-snippet dim', e.snippet));
     li.addEventListener('click', () => openEntry(e.id));
     li.addEventListener('keydown', (ev) => {
@@ -271,8 +293,9 @@ function showEntry(e) {
     sel.append(o);
   }
   sel.value = e.mood || '';
-  $('entry-date').textContent = new Date(e.created).toLocaleString(undefined,
-    { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+  $('entry-date').value = localInputValue(new Date(e.created));
+  dateTouched = false;
+  $('entry-tags').value = (e.tags || []).join(', ');
   renderRuns(e.content || []);
   entryDirty = false;
   loadedModified = e.modified;
@@ -296,13 +319,24 @@ function commit() {
     id: currentId,
     title: $('entry-title').value,
     mood: $('entry-mood').value,
+    tags: $('entry-tags').value.split(','),
+    // Only when changed: the field drops seconds, which must not count as
+    // an edit.
+    created: dateTouched ? new Date($('entry-date').value).toISOString() : undefined,
     content: serialize($('editor')),
   }));
+  dateTouched = false;
   if (changed) {
     loadedModified = coreJSON('entry', currentId)?.modified;
     renderList();
   }
   updateStatus();
+}
+
+// localInputValue formats a date for <input type="datetime-local">.
+function localInputValue(d) {
+  const p = (n) => String(n).padStart(2, '0');
+  return `${d.getFullYear()}-${p(d.getMonth() + 1)}-${p(d.getDate())}T${p(d.getHours())}:${p(d.getMinutes())}`;
 }
 
 function newEntry() {
@@ -484,7 +518,7 @@ function setupEditor() {
   });
   ed.addEventListener('drop', (e) => e.preventDefault());
 
-  for (const b of document.querySelectorAll('.toolbar button')) {
+  for (const b of document.querySelectorAll('.toolbar button[data-cmd]')) {
     // Keep the selection and the keyboard while tapping a button.
     b.addEventListener('pointerdown', (e) => e.preventDefault());
     b.addEventListener('click', () => {
@@ -492,11 +526,75 @@ function setupEditor() {
       updateToolbar();
     });
   }
-  document.addEventListener('selectionchange', updateToolbar);
+  document.addEventListener('selectionchange', () => {
+    updateToolbar();
+    const sel = getSelection();
+    if (sel.rangeCount && ed.contains(sel.anchorNode)) photoRange = sel.getRangeAt(0).cloneRange();
+  });
+
+  $('photo-btn').addEventListener('pointerdown', (e) => e.preventDefault());
+  $('photo-btn').addEventListener('click', () => $('photo-input').click());
+  $('photo-input').addEventListener('change', async () => {
+    const file = $('photo-input').files[0];
+    $('photo-input').value = '';
+    if (!file || !currentId) return;
+    const btn = $('photo-btn');
+    btn.disabled = true;
+    btn.textContent = 'Adding…';
+    try {
+      insertPicture(await shrinkPhoto(file));
+    } catch (e) {
+      alert('Cannot add this picture: ' + errText(e));
+    } finally {
+      btn.disabled = false;
+      btn.textContent = 'Photo';
+    }
+  });
+}
+
+// Where a photo goes: the last cursor position in the editor.
+let photoRange = null;
+
+const PHOTO_MAX_SIDE = 2048;
+
+// shrinkPhoto scales a photo down and re-encodes it as JPEG, turned the
+// right way up. Re-encoding also drops its metadata, GPS position included.
+async function shrinkPhoto(file) {
+  const bmp = await createImageBitmap(file, { imageOrientation: 'from-image' });
+  const scale = Math.min(1, PHOTO_MAX_SIDE / Math.max(bmp.width, bmp.height));
+  const canvas = document.createElement('canvas');
+  canvas.width = Math.max(1, Math.round(bmp.width * scale));
+  canvas.height = Math.max(1, Math.round(bmp.height * scale));
+  canvas.getContext('2d').drawImage(bmp, 0, 0, canvas.width, canvas.height);
+  bmp.close();
+  const blob = await new Promise((resolve, reject) =>
+    canvas.toBlob((b) => b ? resolve(b) : reject(new Error('encoding failed')), 'image/jpeg', 0.85));
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+function insertPicture(data) {
+  const id = core('addImage', 'image/jpeg', data);
+  const ed = $('editor');
+  let range = photoRange;
+  if (!range || !ed.contains(range.startContainer)) {
+    range = document.createRange();
+    range.selectNodeContents(ed);
+    range.collapse(false);
+  }
+  const img = imageElement(id);
+  range.deleteContents();
+  range.insertNode(img);
+  range.setStartAfter(img);
+  range.collapse(true);
+  const sel = getSelection();
+  sel.removeAllRanges();
+  sel.addRange(range);
+  photoRange = range.cloneRange();
+  edited();
 }
 
 function updateToolbar() {
-  for (const b of document.querySelectorAll('.toolbar button')) {
+  for (const b of document.querySelectorAll('.toolbar button[data-cmd]')) {
     let on = false;
     try { on = document.queryCommandState(b.dataset.cmd); } catch { /* unsupported */ }
     b.classList.toggle('active', on);

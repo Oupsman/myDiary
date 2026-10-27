@@ -81,6 +81,7 @@ func main() {
 	fn("newEntry", newEntry)
 	fn("deleteEntry", deleteEntry)
 	fn("image", image)
+	fn("addImage", addImage)
 
 	js.Global().Set("mydiary", js.ValueOf(api))
 	js.Global().Call("dispatchEvent", js.Global().Get("Event").New("mydiary-ready"))
@@ -275,40 +276,37 @@ func moods([]js.Value) (any, error) {
 	return toJSON(out)
 }
 
-// entries(query) → JSON summaries, newest first, filtered like the desktop
-// search (title, text or mood name).
+// entries(query, onThisDay) → JSON summaries, newest first, filtered like
+// the desktop list.
 func entries(args []js.Value) (any, error) {
 	if err := requireOpen(); err != nil {
 		return nil, err
 	}
 	q := ""
 	if len(args) > 0 && args[0].Type() == js.TypeString {
-		q = strings.ToLower(strings.TrimSpace(args[0].String()))
+		q = args[0].String()
 	}
+	onThisDay := len(args) > 1 && args[1].Truthy()
 	type summary struct {
 		ID       string    `json:"id"`
 		Title    string    `json:"title"`
 		Created  time.Time `json:"created"`
 		Modified time.Time `json:"modified"`
 		Mood     string    `json:"mood"`
+		Tags     []string  `json:"tags"`
 		Snippet  string    `json:"snippet"`
 	}
 	out := []summary{}
+	now := time.Now()
 	for _, e := range d.SortedEntries() {
-		text := e.PlainText()
-		if q != "" {
-			m, _ := diary.MoodByKey(e.Mood)
-			if !strings.Contains(strings.ToLower(e.Title), q) &&
-				!strings.Contains(strings.ToLower(text), q) &&
-				!(m.Label != "" && strings.Contains(strings.ToLower(m.Label), q)) {
-				continue
-			}
+		if (onThisDay && !e.OnThisDay(now)) || !e.Matches(q) {
+			continue
 		}
-		snippet := strings.Join(strings.Fields(strings.ReplaceAll(text, "￼", "")), " ")
+		snippet := strings.Join(strings.Fields(strings.ReplaceAll(e.PlainText(), "￼", "")), " ")
 		if r := []rune(snippet); len(r) > 90 {
 			snippet = string(r[:90]) + "…"
 		}
-		out = append(out, summary{e.ID, e.Title, e.Created, e.Modified, e.Mood, snippet})
+		out = append(out, summary{e.ID, e.Title, e.Created, e.Modified, e.Mood, e.Tags, snippet})
 	}
 	return toJSON(out)
 }
@@ -325,9 +323,10 @@ func entry(args []js.Value) (any, error) {
 	return toJSON(e)
 }
 
-// saveEntry(json {id, title, mood, content}) stores an edited entry and
-// reports whether anything changed. Runs are normalised the way the desktop
-// editor produces them, and may only refer to pictures the diary has.
+// saveEntry(json {id, title, mood, tags, content, created?}) stores an
+// edited entry and reports whether anything changed. created is only sent
+// when the date was changed. Runs are normalised the way the desktop editor
+// produces them, and may only refer to pictures the diary has.
 func saveEntry(args []js.Value) (any, error) {
 	if err := requireOpen(); err != nil {
 		return nil, err
@@ -360,10 +359,16 @@ func saveEntry(args []js.Value) (any, error) {
 	if _, ok := diary.MoodByKey(in.Mood); !ok && in.Mood != e.Mood {
 		in.Mood = ""
 	}
-	if in.Title == e.Title && in.Mood == e.Mood && slices.Equal(content, e.Content) {
+	tags := diary.NormalizeTags(in.Tags)
+	created := e.Created
+	if !in.Created.IsZero() {
+		created = in.Created
+	}
+	if in.Title == e.Title && in.Mood == e.Mood && slices.Equal(tags, e.Tags) &&
+		created.Equal(e.Created) && slices.Equal(content, e.Content) {
 		return false, nil
 	}
-	e.Title, e.Mood, e.Content = in.Title, in.Mood, content
+	e.Title, e.Mood, e.Tags, e.Created, e.Content = in.Title, in.Mood, tags, created, content
 	e.Modified = time.Now()
 	editSeq++
 	return true, nil
@@ -400,4 +405,28 @@ func image(args []js.Value) (any, error) {
 	data := js.Global().Get("Uint8Array").New(len(img.Data))
 	js.CopyBytesToJS(data, img.Data)
 	return map[string]any{"mime": img.MIME, "data": data}, nil
+}
+
+// maxImage bounds a picture added from the browser, which has shrunk it.
+const maxImage = 16 << 20
+
+// addImage(mime, Uint8Array) stores a picture and returns its ID, for the
+// page to insert into the entry.
+func addImage(args []js.Value) (any, error) {
+	if err := requireOpen(); err != nil {
+		return nil, err
+	}
+	mime := args[0].String()
+	switch mime {
+	case "image/jpeg", "image/png", "image/webp", "image/gif":
+	default:
+		return nil, errors.New("unsupported picture type " + mime)
+	}
+	n := args[1].Get("length").Int()
+	if n == 0 || n > maxImage {
+		return nil, errors.New("picture too large")
+	}
+	data := make([]byte, n)
+	js.CopyBytesToGo(data, args[1])
+	return d.AddImage(mime, data), nil
 }

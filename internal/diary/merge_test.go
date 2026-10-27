@@ -92,3 +92,19 @@ func TestMergeUnchanged(t *testing.T) {
 		t.Fatal("identical copies reported as changed")
 	}
 }
+
+func TestMergeDateAndTags(t *testing.T) {
+	t0 := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	local := New("d")
+	local.Entries = []*Entry{entry("e", "x", t0)}
+	remote := local.Clone()
+	remote.Entries[0].Created = t0.Add(-24 * time.Hour)
+	remote.Entries[0].Tags = []string{"travel"}
+	remote.Entries[0].Modified = t0.Add(time.Hour)
+
+	m, changed := Merge(local, remote)
+	e := m.Entry("e")
+	if !changed || !e.Created.Equal(t0.Add(-24*time.Hour)) || len(e.Tags) != 1 {
+		t.Fatalf("changed=%v created=%v tags=%v, want the remote date and tags", changed, e.Created, e.Tags)
+	}
+}
