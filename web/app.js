@@ -159,7 +159,7 @@ function enterApp() {
   $('search').addEventListener('input', debounce(renderList, 150));
   $('new-btn').addEventListener('click', newEntry);
   $('back-btn').addEventListener('click', () => history.state?.entry ? history.back() : showList());
-  $('delete-btn').addEventListener('click', deleteEntry);
+  $('delete-btn').addEventListener('click', () => deleteEntry());
   $('lock-btn').addEventListener('click', lock);
   $('sync-status').addEventListener('click', () => { syncPaused = false; syncNow(); });
   $('entry-title').addEventListener('input', edited);
@@ -216,7 +216,10 @@ function renderList() {
       { weekday: 'short', day: 'numeric', month: 'short', year: 'numeric' })));
     if (e.snippet) li.append(div('row-snippet dim', e.snippet));
     li.addEventListener('click', () => openEntry(e.id));
-    li.addEventListener('keydown', (ev) => { if (ev.key === 'Enter') openEntry(e.id); });
+    li.addEventListener('keydown', (ev) => {
+      if (ev.key === 'Enter') openEntry(e.id);
+      if (ev.key === 'Delete') deleteEntry(e.id);
+    });
     return li;
   }));
 }
@@ -312,15 +315,24 @@ function newEntry() {
   syncSoon();
 }
 
-function deleteEntry() {
-  if (!currentId) return;
-  const title = $('entry-title').value.trim() || 'this entry';
-  if (!confirm(`Delete “${title}”?`)) return;
-  core('deleteEntry', currentId);
-  entryDirty = false;
-  showEntry(null);
-  if (history.state?.entry) history.back(); else showList();
+// deleteEntry deletes the open entry, or the given one (Delete in the list),
+// then moves the focus to the next row as the desktop app does.
+function deleteEntry(id = currentId) {
+  if (!id) return;
+  if (id === currentId) commit();
+  const e = coreJSON('entry', id);
+  if (!e) return;
+  if (!confirm(`Delete “${e.title.trim() || 'this entry'}”?`)) return;
+  const idx = [...$('entries').children].findIndex((li) => li.dataset.id === id);
+  core('deleteEntry', id);
+  if (id === currentId) {
+    entryDirty = false;
+    showEntry(null);
+    if (history.state?.entry) history.back(); else showList();
+  }
   renderList();
+  const rows = $('entries').children;
+  (rows[idx] || rows[idx - 1])?.focus();
   syncSoon();
 }
 
