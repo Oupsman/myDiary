@@ -24,6 +24,25 @@ export twice adds nothing.
 per entry with its title, date, mood and tags as YAML front matter, the
 pictures as files, and `diary.json` with everything, formatting included.
 
+## Tray icon and daily reminder
+
+myDiary shows an icon in the system tray (StatusNotifierItem: KDE, most
+Wayland bars; GNOME needs the AppIndicator extension). Closing the window
+locks the diary and keeps the app running in the tray; use **Quit** (Ctrl+Q,
+or the tray menu) to exit. Without a tray, closing the window quits as before.
+
+A notification reminds you to write once a day, at 20:00 by default, unless
+the open diary already has an entry for today. Change the time or turn it off
+in **Reminder and startup…** (main menu), or toggle it from the tray menu. It
+only fires while myDiary is running; a reminder missed earlier in the day is
+shown when the app is next running that day.
+
+**Start at login** (same dialog, or the tray menu) adds an entry to
+`~/.config/autostart` that runs `mydiary --hidden`: the app starts in the tray,
+without a window. The entry records the path of the running binary, so turn
+it on from the installed app, not from `go run`, and turn it off and on again
+if you move the binary.
+
 ## Build
 
 ```sh

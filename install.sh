@@ -44,6 +44,8 @@ refresh_menu() {
 
 if $uninstall; then
 	$sudo rm -f "$bindir/mydiary" "$desktop"
+	# "Start at login", set from the app, points at the removed binary.
+	rm -f "${XDG_CONFIG_HOME:-$HOME/.config}/autostart/$app_id.desktop"
 	refresh_menu
 	echo "Removed $bindir/mydiary and $desktop"
 	exit 0

@@ -6,9 +6,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"time"
 
+	"fyne.io/systray"
 	coreglib "github.com/diamondburned/gotk4/pkg/core/glib"
 	"github.com/diamondburned/gotk4/pkg/gdk/v4"
 	"github.com/diamondburned/gotk4/pkg/gio/v2"
@@ -16,15 +18,22 @@ import (
 	"github.com/diamondburned/gotk4/pkg/gtk/v4"
 	"github.com/diamondburned/gotk4/pkg/pango"
 
+	"github.com/oupsman/mydiary/internal/autostart"
 	"github.com/oupsman/mydiary/internal/diary"
+	"github.com/oupsman/mydiary/internal/reminder"
 	"github.com/oupsman/mydiary/internal/syncclient"
 	"github.com/oupsman/mydiary/internal/vault"
 )
 
 const AppID = "io.github.oupsman.MyDiary"
 
-// Run starts the application and returns its exit code.
+// Run starts the application and returns its exit code. With
+// autostart.HiddenFlag, the first window stays hidden in the tray.
 func Run(args []string) int {
+	hidden := slices.Contains(args, autostart.HiddenFlag)
+	// GApplication rejects options it does not know.
+	args = slices.DeleteFunc(slices.Clone(args), func(s string) bool { return s == autostart.HiddenFlag })
+
 	app := gtk.NewApplication(AppID, gio.ApplicationDefaultFlags)
 	var a *App
 	app.ConnectActivate(func() {
@@ -33,7 +42,9 @@ func Run(args []string) int {
 			return
 		}
 		a = newApp(app)
-		a.win.Present()
+		if !hidden {
+			a.win.Present()
+		}
 	})
 	return app.Run(args)
 }
@@ -82,6 +93,11 @@ type App struct {
 	loadingEntry   bool
 	suppressSelect bool
 	forceClose     bool
+	quitting       bool // closing the window quits instead of hiding it in the tray
+
+	reminder      reminder.Config
+	trayReminder  *systray.MenuItem
+	trayAutostart *systray.MenuItem
 
 	// Sync.
 	syncCfg    syncclient.Config
@@ -119,7 +135,14 @@ func newApp(app *gtk.Application) *App {
 
 	a.win.ConnectCloseRequest(func() bool {
 		if a.forceClose || a.diary == nil || !a.dirty {
+			a.forceClose = false
 			a.lock()
+			if !a.quitting && trayHosted() {
+				// Keep running in the tray so the daily reminder still works.
+				a.showWelcome()
+				a.win.SetVisible(false)
+				return true
+			}
 			return false
 		}
 		askUnsaved(&a.win.Window, func(choice string) {
@@ -128,15 +151,21 @@ func newApp(app *gtk.Application) *App {
 				if a.save() {
 					a.forceClose = true
 					a.win.Close()
+				} else {
+					a.quitting = false
 				}
 			case "discard":
 				a.forceClose = true
 				a.win.Close()
+			default:
+				a.quitting = false
 			}
 		})
 		return true // keep open until answered
 	})
 
+	a.setupReminder()
+	a.startTray()
 	a.showWelcome()
 	return a
 }
@@ -221,6 +250,9 @@ func (a *App) buildHeader() {
 	secSync.Append("S_ync now", "win.sync-now")
 	secSync.Append("Sync _settings…", "win.sync-settings")
 	menu.AppendSection("", secSync)
+	secReminder := gio.NewMenu()
+	secReminder.Append("_Reminder and startup…", "win.reminder-settings")
+	menu.AppendSection("", secReminder)
 	sec2 := gio.NewMenu()
 	sec2.Append("_Keyboard shortcuts", "win.shortcuts")
 	sec2.Append("_Quit", "win.quit")
@@ -494,7 +526,10 @@ func (a *App) setupActions() {
 	add("save", func() { a.save() })
 	add("change-passphrase", a.changePassphrase)
 	add("close-diary", func() { a.closeDiary(nil) })
-	add("quit", func() { a.win.Close() })
+	add("quit", func() {
+		a.quitting = true
+		a.win.Close()
+	})
 
 	add("new-entry", a.newEntry)
 	add("delete-entry", a.deleteEntry)
@@ -530,6 +565,7 @@ func (a *App) setupActions() {
 	})
 	add("sync-settings", a.syncSettings)
 	add("download-diary", func() { a.closeDiary(a.downloadDiary) })
+	add("reminder-settings", a.reminderSettings)
 
 	add("shortcuts", func() { showShortcuts(&a.win.Window) })
 	add("fullscreen", func() {
@@ -579,7 +615,10 @@ func (a *App) showWelcome() {
 	}
 }
 
-func (a *App) openPath(path string) {
+func (a *App) openPath(path string) { a.openPathThen(path, nil) }
+
+// openPathThen unlocks the diary at path and then calls then, if not nil.
+func (a *App) openPathThen(path string, then func()) {
 	var (
 		d *diary.Diary
 		k *vault.Key
@@ -596,7 +635,12 @@ func (a *App) openPath(path string) {
 		}
 		d, k = dd, kk
 		return ""
-	}, func() { a.setDiary(path, d, k) })
+	}, func() {
+		a.setDiary(path, d, k)
+		if then != nil {
+			then()
+		}
+	})
 }
 
 func (a *App) newDiary() {
@@ -747,6 +791,7 @@ func (a *App) saveLocal() bool {
 	}
 	a.dirty = false
 	a.updateTitle()
+	a.noteSaved()
 	return true
 }
 
@@ -1036,6 +1081,8 @@ type state struct {
 	LastPath string `json:"last_path"`
 	// Sync is the per-diary sync state, by diary ID.
 	Sync map[string]diarySyncState `json:"sync,omitempty"`
+	// Reminder is the daily reminder setting; nil means reminder.Default.
+	Reminder *reminder.Config `json:"reminder,omitempty"`
 }
 
 type diarySyncState struct {
