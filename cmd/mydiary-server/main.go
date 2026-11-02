@@ -7,7 +7,7 @@
 //
 // Usage:
 //
-//	mydiary-server [-data DIR] serve [-listen ADDR] [-max-size MiB] [-web DIR]
+//	mydiary-server [-data DIR] serve [-listen ADDR] [-max-size MiB] [-web DIR] [-migrate USER]
 //	mydiary-server [-data DIR] token add USER DEVICE
 //	mydiary-server [-data DIR] token list [USER]
 //	mydiary-server [-data DIR] token revoke USER DEVICE
@@ -35,7 +35,7 @@ import (
 
 func usage() {
 	fmt.Fprintf(os.Stderr, `Usage:
-  mydiary-server [-data DIR] serve [-listen ADDR] [-max-size MiB] [-web DIR]
+  mydiary-server [-data DIR] serve [-listen ADDR] [-max-size MiB] [-web DIR] [-migrate USER]
   mydiary-server [-data DIR] token add USER DEVICE   create a device token (printed once)
   mydiary-server [-data DIR] token list [USER]
   mydiary-server [-data DIR] token revoke USER DEVICE
@@ -149,11 +149,20 @@ func serve(data string, tokens *syncserver.Tokens, args []string) {
 	listen := fs.String("listen", "127.0.0.1:8484", "address to listen on (keep it private: the reverse proxy does TLS)")
 	maxSize := fs.Int64("max-size", 512, "maximum diary size in MiB")
 	web := fs.String("web", "", "directory of the web frontend to serve (optional)")
+	migrate := fs.String("migrate", os.Getenv("MYDIARY_MIGRATE"), "if data from a single-user version is found, give it to this user before serving (default $MYDIARY_MIGRATE)")
 	fs.Parse(args)
 
-	stores, err := syncserver.NewStores(filepath.Join(data, "diaries"), tokens)
+	diaries := filepath.Join(data, "diaries")
+	stores, err := syncserver.NewStores(diaries, tokens)
+	if errors.Is(err, syncserver.ErrLegacyLayout) && *migrate != "" {
+		if err := syncserver.Migrate(diaries, tokens, *migrate); err != nil {
+			log.Fatalf("migrate: %v", err)
+		}
+		log.Printf("existing diaries and device tokens now belong to %q", *migrate)
+		stores, err = syncserver.NewStores(diaries, tokens)
+	}
 	if errors.Is(err, syncserver.ErrLegacyLayout) {
-		log.Fatalf("%v: give it to a user first with: mydiary-server -data %s migrate USER", err, data)
+		log.Fatalf("%v: give it to a user first with: mydiary-server -data %s migrate USER, or start the server with -migrate USER (or MYDIARY_MIGRATE=USER)", err, data)
 	}
 	if err != nil {
 		log.Fatal(err)

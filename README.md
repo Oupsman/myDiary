@@ -219,6 +219,21 @@ docker run -d --name mydiary-server --restart unless-stopped \
 To upgrade, `docker pull` the new tag, `docker rm -f mydiary-server` and run
 the same command again; the data stays in `/srv/mydiary`.
 
+Upgrading from a single-user version: the server refuses to start until the
+existing data is given to a user, so the container restarts in a loop and
+`docker exec` cannot reach it. Either add `-e MYDIARY_MIGRATE=alice` to the
+`docker run` command above (the data is given to `alice` at startup; the
+variable does nothing once that is done), or migrate with a one-off container
+on the same volume:
+
+```sh
+docker rm -f mydiary-server
+docker run --rm -v /srv/mydiary:/data --read-only --cap-drop ALL \
+    registry.example.lan/mydiary-server:latest migrate alice
+```
+
+then run the server again.
+
 Tokens:
 
 ```sh
