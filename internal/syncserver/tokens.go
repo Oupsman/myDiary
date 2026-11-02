@@ -8,6 +8,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"sync"
 	"time"
@@ -15,8 +16,10 @@ import (
 	"github.com/oupsman/mydiary/internal/vault"
 )
 
-// Device is an authorised client. Only a SHA-256 of its token is stored.
+// Device is an authorised client of a user. Only a SHA-256 of its token is
+// stored.
 type Device struct {
+	User    string    `json:"user"`
 	Name    string    `json:"name"`
 	Hash    string    `json:"hash"`
 	Created time.Time `json:"created"`
@@ -60,8 +63,8 @@ func hashToken(tok string) string {
 	return hex.EncodeToString(h[:])
 }
 
-// Check returns the name of the device owning tok, or "" if none does.
-func (t *Tokens) Check(tok string) string {
+// Check returns the device owning tok, or false if none does.
+func (t *Tokens) Check(tok string) (Device, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	if st, err := os.Stat(t.path); err == nil && !st.ModTime().Equal(t.modTime) {
@@ -72,27 +75,34 @@ func (t *Tokens) Check(tok string) string {
 		t.devices = nil
 	}
 	if tok == "" {
-		return ""
+		return Device{}, false
 	}
 	h := []byte(hashToken(tok))
-	name := ""
+	var found Device
+	ok := false
 	for _, d := range t.devices {
-		if subtle.ConstantTimeCompare(h, []byte(d.Hash)) == 1 {
-			name = d.Name
+		// A device left without a user by an old version is refused until
+		// "migrate" assigns one.
+		if subtle.ConstantTimeCompare(h, []byte(d.Hash)) == 1 && d.User != "" {
+			found, ok = d, true
 		}
 	}
-	return name
+	return found, ok
 }
 
-// Add creates a device and returns its token, which is shown only once.
-func (t *Tokens) Add(name string) (string, error) {
+// Add creates a device for user and returns its token, which is shown only
+// once.
+func (t *Tokens) Add(user, name string) (string, error) {
+	if !ValidUser(user) {
+		return "", errInvalidUser
+	}
 	ds, err := t.load()
 	if err != nil {
 		return "", err
 	}
 	for _, d := range ds {
-		if d.Name == name {
-			return "", errors.New("a device with this name already exists")
+		if d.User == user && d.Name == name {
+			return "", errors.New("this user already has a device with this name")
 		}
 	}
 	var raw [32]byte
@@ -100,18 +110,18 @@ func (t *Tokens) Add(name string) (string, error) {
 		return "", err
 	}
 	tok := base64.RawURLEncoding.EncodeToString(raw[:])
-	ds = append(ds, Device{Name: name, Hash: hashToken(tok), Created: time.Now().UTC()})
+	ds = append(ds, Device{User: user, Name: name, Hash: hashToken(tok), Created: time.Now().UTC()})
 	return tok, t.save(ds)
 }
 
-// Revoke removes a device.
-func (t *Tokens) Revoke(name string) error {
+// Revoke removes a device of user.
+func (t *Tokens) Revoke(user, name string) error {
 	ds, err := t.load()
 	if err != nil {
 		return err
 	}
 	for i, d := range ds {
-		if d.Name == name {
+		if d.User == user && d.Name == name {
 			return t.save(append(ds[:i], ds[i+1:]...))
 		}
 	}
@@ -120,3 +130,57 @@ func (t *Tokens) Revoke(name string) error {
 
 // List returns the devices.
 func (t *Tokens) List() ([]Device, error) { return t.load() }
+
+// RevokeUser removes all the devices of user and returns how many there were.
+func (t *Tokens) RevokeUser(user string) (int, error) {
+	ds, err := t.load()
+	if err != nil {
+		return 0, err
+	}
+	kept := ds[:0]
+	for _, d := range ds {
+		if d.User != user {
+			kept = append(kept, d)
+		}
+	}
+	n := len(ds) - len(kept)
+	if n == 0 {
+		return 0, nil
+	}
+	return n, t.save(kept)
+}
+
+// hasOrphans reports whether some device has no user (written by a
+// single-user version).
+func (t *Tokens) hasOrphans() (bool, error) {
+	ds, err := t.load()
+	for _, d := range ds {
+		if d.User == "" {
+			return true, err
+		}
+	}
+	return false, err
+}
+
+// adoptOrphans gives the devices that have no user to user.
+func (t *Tokens) adoptOrphans(user string) error {
+	ds, err := t.load()
+	if err != nil {
+		return err
+	}
+	changed := false
+	for i := range ds {
+		if ds[i].User == "" {
+			for _, d := range ds {
+				if d.User == user && d.Name == ds[i].Name {
+					return fmt.Errorf("%s already has a device named %q", user, d.Name)
+				}
+			}
+			ds[i].User, changed = user, true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	return t.save(ds)
+}

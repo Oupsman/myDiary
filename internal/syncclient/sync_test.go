@@ -19,16 +19,16 @@ var testParams = vault.Params{Time: 1, Memory: 8 * 1024, Threads: 1}
 func newServer(t *testing.T) (*httptest.Server, string) {
 	t.Helper()
 	dir := t.TempDir()
-	store, err := syncserver.NewStore(filepath.Join(dir, "diaries"))
-	if err != nil {
-		t.Fatal(err)
-	}
 	tokens := syncserver.NewTokens(filepath.Join(dir, "tokens.json"))
-	tok, err := tokens.Add("test")
+	stores, err := syncserver.NewStores(filepath.Join(dir, "diaries"), tokens)
 	if err != nil {
 		t.Fatal(err)
 	}
-	srv := httptest.NewServer((&syncserver.Server{Store: store, Tokens: tokens, MaxSize: 1 << 20}).Handler())
+	tok, err := tokens.Add("test", "test")
+	if err != nil {
+		t.Fatal(err)
+	}
+	srv := httptest.NewServer((&syncserver.Server{Stores: stores, Tokens: tokens, MaxSize: 1 << 20}).Handler())
 	t.Cleanup(srv.Close)
 	return srv, tok
 }

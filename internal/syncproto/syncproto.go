@@ -9,6 +9,8 @@
 //	                          returns DiaryInfo, or 412 if the version moved on
 //	DELETE /v1/diaries/{id}   needs If-Match
 //
+// Each token belongs to a user; the diaries listed and served are that user's.
+//
 // Bodies are diary files exactly as stored on disk: already encrypted by the
 // client. The server never sees a key.
 package syncproto

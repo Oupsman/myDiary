@@ -9,13 +9,14 @@ import (
 )
 
 func TestWeb(t *testing.T) {
-	store, err := NewStore(t.TempDir())
+	tokens := NewTokens(filepath.Join(t.TempDir(), "tokens.json"))
+	stores, err := NewStores(t.TempDir(), tokens)
 	if err != nil {
 		t.Fatal(err)
 	}
 	s := &Server{
-		Store:   store,
-		Tokens:  NewTokens(filepath.Join(t.TempDir(), "tokens.json")),
+		Stores:  stores,
+		Tokens:  tokens,
 		MaxSize: 1 << 20,
 		Web: fstest.MapFS{
 			"index.html":      {Data: []byte("<!doctype html>")},

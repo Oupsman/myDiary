@@ -5,6 +5,7 @@ package syncserver
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"errors"
 	"io"
@@ -24,7 +25,7 @@ var vaultMagic = []byte("MYDIARY\x00")
 
 // Server is the HTTP handler.
 type Server struct {
-	Store   *Store
+	Stores  *Stores
 	Tokens  *Tokens
 	MaxSize int64 // maximum upload size in bytes
 	// Web optionally holds the web frontend, served outside /v1/.
@@ -64,26 +65,36 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.ResponseWriter.WriteHeader(code)
 }
 
+type storeKey struct{}
+
+// auth checks the device token and gives the handler the store of the
+// device's user.
 func (s *Server) auth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		start := time.Now()
 		tok, _ := strings.CutPrefix(r.Header.Get("Authorization"), "Bearer ")
-		device := s.Tokens.Check(tok)
+		device, ok := s.Tokens.Check(tok)
 		sw := &statusWriter{ResponseWriter: w, status: http.StatusOK}
-		if device == "" {
+		who := "-"
+		if ok {
+			who = device.User + "/" + device.Name
+		}
+		if !ok {
 			// Slow down token guessing a little.
 			time.Sleep(500 * time.Millisecond)
 			http.Error(sw, "unauthorized", http.StatusUnauthorized)
+		} else if store, err := s.Stores.For(device.User); err != nil {
+			storeError(sw, err)
 		} else {
 			w.Header().Set("Cache-Control", "no-store")
-			next.ServeHTTP(sw, r)
+			next.ServeHTTP(sw, r.WithContext(context.WithValue(r.Context(), storeKey{}, store)))
 		}
-		if device == "" {
-			device = "-"
-		}
-		log.Printf("%s %s %s %d %s", device, r.Method, r.URL.Path, sw.status, time.Since(start).Round(time.Millisecond))
+		log.Printf("%s %s %s %d %s", who, r.Method, r.URL.Path, sw.status, time.Since(start).Round(time.Millisecond))
 	})
 }
+
+// store returns the store of the user making the request.
+func store(r *http.Request) *Store { return r.Context().Value(storeKey{}).(*Store) }
 
 func writeJSON(w http.ResponseWriter, status int, v any) {
 	w.Header().Set("Content-Type", "application/json")
@@ -113,7 +124,7 @@ func storeError(w http.ResponseWriter, err error) {
 }
 
 func (s *Server) list(w http.ResponseWriter, r *http.Request) {
-	infos, err := s.Store.List()
+	infos, err := store(r).List()
 	if err != nil {
 		storeError(w, err)
 		return
@@ -127,13 +138,13 @@ func (s *Server) get(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	if v, ok := syncproto.ParseETag(r.Header.Get("If-None-Match")); ok {
-		if info, err := s.Store.Stat(id); err == nil && info.Version == v {
+		if info, err := store(r).Stat(id); err == nil && info.Version == v {
 			w.Header().Set("ETag", syncproto.ETag(v))
 			w.WriteHeader(http.StatusNotModified)
 			return
 		}
 	}
-	info, data, err := s.Store.Get(id)
+	info, data, err := store(r).Get(id)
 	if err != nil {
 		storeError(w, err)
 		return
@@ -176,7 +187,7 @@ func (s *Server) put(w http.ResponseWriter, r *http.Request) {
 		http.Error(w, "body is not an encrypted diary", http.StatusUnsupportedMediaType)
 		return
 	}
-	info, err := s.Store.Put(id, base, data)
+	info, err := store(r).Put(id, base, data)
 	if err != nil {
 		if errors.Is(err, ErrConflict) && info.Version > 0 {
 			w.Header().Set("ETag", syncproto.ETag(info.Version))
@@ -197,7 +208,7 @@ func (s *Server) del(w http.ResponseWriter, r *http.Request) {
 	if !ok {
 		return
 	}
-	if err := s.Store.Delete(id, base); err != nil {
+	if err := store(r).Delete(id, base); err != nil {
 		storeError(w, err)
 		return
 	}

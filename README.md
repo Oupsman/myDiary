@@ -79,15 +79,31 @@ sudo systemctl daemon-reload
 sudo systemctl enable --now mydiary-server
 ```
 
-### Devices
+### Users and devices
 
-Each computer gets its own token, which you can revoke without affecting the
-others (no restart needed):
+A server can hold the diaries of several people. Each device token belongs to
+a user, and a user only sees and changes their own diaries. Each computer gets
+its own token, which you can revoke without affecting the others (no restart
+needed):
 
 ```sh
-sudo -u mydiary mydiary-server -data /var/lib/mydiary token add laptop
-sudo -u mydiary mydiary-server -data /var/lib/mydiary token list
-sudo -u mydiary mydiary-server -data /var/lib/mydiary token revoke laptop
+sudo -u mydiary mydiary-server -data /var/lib/mydiary token add alice laptop
+sudo -u mydiary mydiary-server -data /var/lib/mydiary token list [alice]
+sudo -u mydiary mydiary-server -data /var/lib/mydiary token revoke alice laptop
+sudo -u mydiary mydiary-server -data /var/lib/mydiary user list
+sudo -u mydiary mydiary-server -data /var/lib/mydiary user delete alice   # tokens and diaries, no undo
+```
+
+User names are 1 to 32 lowercase letters, digits, `.`, `_` or `-`. A user
+exists as soon as it has a token; there is no separate account to create.
+
+Upgrading from a single-user server: the server refuses to start until you
+give the existing diaries and tokens to a user (existing tokens keep working):
+
+```sh
+sudo systemctl stop mydiary-server
+sudo -u mydiary mydiary-server -data /var/lib/mydiary migrate alice
+sudo systemctl start mydiary-server
 ```
 
 In the app, open **Sync settings** (Ctrl+,), enter the proxy URL and the
@@ -153,7 +169,7 @@ compiled to WebAssembly (`cmd/mydiary-wasm`): the server still only stores
 encrypted files. Build it with `./web/build.sh`, then serve the `web`
 directory. The Docker image includes it.
 
-On first use, enter a device token (`token add phone`), then the passphrase.
+On first use, enter a device token (`token add USER phone`), then the passphrase.
 The token is remembered by the browser, the passphrase never is. Edits are
 synced two seconds after you stop typing; the status at the top says when
 everything is on the server. Changes not yet synced live only in the open
@@ -206,6 +222,6 @@ the same command again; the data stays in `/srv/mydiary`.
 Tokens:
 
 ```sh
-docker exec mydiary-server mydiary-server -data /data token add laptop
+docker exec mydiary-server mydiary-server -data /data token add alice laptop
 docker exec mydiary-server mydiary-server -data /data token list
 ```
