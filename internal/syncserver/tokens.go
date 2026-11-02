@@ -31,7 +31,7 @@ type Tokens struct {
 	path string
 
 	mu      sync.Mutex
-	modTime time.Time
+	loaded  os.FileInfo // of the file devices was read from
 	devices []Device
 }
 
@@ -63,16 +63,24 @@ func hashToken(tok string) string {
 	return hex.EncodeToString(h[:])
 }
 
+// unchanged reports whether st is the file devices was read from. The file
+// is replaced, never rewritten in place, so a new inode means new content even
+// when the file system's timestamps are too coarse to tell.
+func (t *Tokens) unchanged(st os.FileInfo) bool {
+	return t.loaded != nil && os.SameFile(st, t.loaded) &&
+		st.ModTime().Equal(t.loaded.ModTime()) && st.Size() == t.loaded.Size()
+}
+
 // Check returns the device owning tok, or false if none does.
 func (t *Tokens) Check(tok string) (Device, bool) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
-	if st, err := os.Stat(t.path); err == nil && !st.ModTime().Equal(t.modTime) {
+	if st, err := os.Stat(t.path); err == nil && !t.unchanged(st) {
 		if ds, err := t.load(); err == nil {
-			t.devices, t.modTime = ds, st.ModTime()
+			t.devices, t.loaded = ds, st
 		}
 	} else if errors.Is(err, os.ErrNotExist) {
-		t.devices = nil
+		t.devices, t.loaded = nil, nil
 	}
 	if tok == "" {
 		return Device{}, false

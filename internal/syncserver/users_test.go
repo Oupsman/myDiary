@@ -112,3 +112,26 @@ func TestMigrate(t *testing.T) {
 		t.Errorf("second migrate: %v", err)
 	}
 }
+
+// TestTokensReloadSameMtime simulates a file system with coarse timestamps:
+// a change that keeps the modification time must still be seen.
+func TestTokensReloadSameMtime(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "tokens.json")
+	tokens := NewTokens(path)
+	first, err := tokens.Add("alice", "laptop")
+	if err != nil {
+		t.Fatal(err)
+	}
+	st, _ := os.Stat(path)
+	if _, ok := tokens.Check(first); !ok {
+		t.Fatal("first token refused")
+	}
+	second, err := tokens.Add("alice", "phone")
+	if err != nil {
+		t.Fatal(err)
+	}
+	os.Chtimes(path, st.ModTime(), st.ModTime())
+	if _, ok := tokens.Check(second); !ok {
+		t.Error("token added within the same mtime refused")
+	}
+}
